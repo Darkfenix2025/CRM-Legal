@@ -1,0 +1,84 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+virtualenv/
+include/
+lib/
+Scripts/
+bin/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/  # IMPORTANTE: No subir los ejecutables compilados directamente al repo
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are created by PyInstaller in a dist/
+#  folder.
+#  If you are not packing your executable directly into dist/
+#  and instead direct PyInstaller to create the executable elsewhere,
+#  UNCOMMENT the lines below specifying the output folder name.
+# *.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.hypothesis/
+.pytest_cache/
+
+# Flycheck
+flycheck_*.el
+
+# SQLite Databases (opcional, decide si quieres versionar tu BD de desarrollo)
+# Si tu BD se crea vacía por la app, es mejor no versionarla.
+# Si tiene datos iniciales importantes, podrías considerarlo, pero para datos de usuario, no.
+*.db
+*.db-journal # Archivos temporales de SQLite
+# Descomenta la siguiente línea si quieres versionar tu BD:
+# !crm_legal.db
+# !audiencias.db
+
+# IDE / Editor specific files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Compiled Executable - Recomiendo NO subirlo directamente. Usa GitHub Releases.
+# Si insistes en subirlo:
+# !dist/CRMLegalGestor.exe
