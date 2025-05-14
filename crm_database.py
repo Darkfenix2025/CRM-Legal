@@ -32,6 +32,25 @@ def create_tables():
     if conn:
         try:
             cursor = conn.cursor()
+            
+            # >>> NUEVA TABLA: actividades_caso <<<
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS actividades_caso (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    caso_id INTEGER NOT NULL,
+                    fecha_hora TEXT NOT NULL, -- Formato YYYY-MM-DD HH:MM:SS para ordenamiento preciso
+                    tipo_actividad TEXT NOT NULL, 
+                    descripcion TEXT NOT NULL,
+                    creado_por TEXT, -- Podría ser útil si varias personas usaran la app
+                    referencia_documento TEXT, -- Opcional: ruta o ID de un documento relacionado
+                    FOREIGN KEY (caso_id) REFERENCES casos(id) ON DELETE CASCADE
+                );
+            ''')
+            # Crear un índice para búsquedas rápidas por caso_id y fecha_hora
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_actividades_caso_id_fecha
+                ON actividades_caso (caso_id, fecha_hora DESC);
+            ''')
 
             # Tabla clientes
             cursor.execute('''
@@ -86,7 +105,6 @@ def create_tables():
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_audiencias_caso_id ON audiencias (caso_id);')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_audiencias_recordatorio ON audiencias (recordatorio_activo);')
 
-
             # Tabla partes_intervinientes (sin cambios)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS partes_intervinientes (
@@ -109,8 +127,56 @@ def create_tables():
         finally:
             close_db(conn)
 
-# --- Funciones de Interacción con Clientes (Sin Cambios) ---
-# --- Añadir esta función a database.py ---
+# --- Funciones CRUD para Actividades del Caso ---
+
+def add_actividad_caso(caso_id, fecha_hora, tipo_actividad, descripcion, creado_por=None, referencia_documento=None):
+    """ Agrega una nueva actividad/log a un caso. """
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Asegurarse de que la fecha_hora tenga un formato consistente para ordenar
+            # Si solo se pasa fecha, se podría añadir hora 00:00:00
+            # Por ahora, asumimos que fecha_hora viene formateada (ej. desde datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            cursor.execute('''
+                INSERT INTO actividades_caso (caso_id, fecha_hora, tipo_actividad, descripcion, creado_por, referencia_documento)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (caso_id, fecha_hora, tipo_actividad, descripcion, creado_por, referencia_documento))
+            conn.commit()
+            new_id = cursor.lastrowid
+            # Actualizar el last_activity_timestamp del caso
+            update_last_activity(caso_id) # Llama a tu función existente
+            print(f"Actividad ID {new_id} agregada al caso ID {caso_id}.")
+            return new_id
+        except sqlite3.Error as e:
+            print(f"Error al agregar actividad al caso ID {caso_id}: {e}")
+            conn.rollback()
+            return None
+        finally:
+            close_db(conn)
+
+def get_actividades_by_caso_id(caso_id, order_desc=True):
+    """ Obtiene todas las actividades para un caso específico, ordenadas por fecha_hora. """
+    conn = connect_db()
+    actividades = []
+    if conn:
+        try:
+            cursor = conn.cursor()
+            order_direction = "DESC" if order_desc else "ASC"
+            sql = f'''
+                SELECT id, caso_id, fecha_hora, tipo_actividad, descripcion, creado_por, referencia_documento 
+                FROM actividades_caso 
+                WHERE caso_id = ? 
+                ORDER BY fecha_hora {order_direction}
+            '''
+            cursor.execute(sql, (caso_id,))
+            rows = cursor.fetchall()
+            actividades = [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error al obtener actividades para el caso ID {caso_id}: {e}")
+        finally:
+            close_db(conn)
+    return actividades
 
 def get_audiencias_by_case(caso_id):
     """ Obtiene todas las audiencias para un caso específico (ID), incluyendo info básica. """
@@ -368,7 +434,7 @@ def update_last_activity(case_id):
             timestamp = int(time.time())
             cursor.execute('UPDATE casos SET last_activity_timestamp = ? WHERE id = ?', (timestamp, case_id))
             conn.commit()
-            # print(f"Timestamp de actividad actualizado para caso ID {case_id}.") # Puede ser muy verboso
+            print(f"Timestamp de actividad actualizado para caso ID {case_id}.") # Puede ser muy verboso
             success = True
         except sqlite3.Error as e:
             print(f"Error al actualizar timestamp de actividad para caso ID {case_id}: {e}")
