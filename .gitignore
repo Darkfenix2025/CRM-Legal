@@ -19,7 +19,9 @@ bin/
 .Python
 build/
 develop-eggs/
-dist/  # IMPORTANTE: No subir los ejecutables compilados directamente al repo
+dist/
+dist 01/
+dist 02/  # IMPORTANTE: No subir los ejecutables compilados directamente al repo
 downloads/
 eggs/
 .eggs/
