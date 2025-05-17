@@ -9,7 +9,7 @@ import subprocess
 import sqlite3 # Importar sqlite3 directamente para referenciar errores
 
 # --- Nuevos Imports para Agenda/Recordatorios/Bandeja ---
-from tkcalendar import Calendar
+from tkcalendar import Calendar, DateEntry
 import threading
 import webbrowser
 import re
@@ -17,11 +17,12 @@ import urllib.parse # Para codificar URLs (Compartir)
 from PIL import Image, ImageTk # Para imagen del logo y bandeja
 import plyer # Para notificaciones nativas
 from pystray import MenuItem as item, Icon as icon # Para bandeja sistema
+import shutil
 
 # --- Import para las Pestañas Modulares ---
 from seguimiento_ui import SeguimientoTab
 from partes_ui import PartesTab # <--- IMPORTACIÓN DEL NUEVO MÓDULO PARTES
-
+from tareas_ui import TareasTab # <--- NUEVA IMPORTACIÓN: TAREAS
 
 # --- Helper para Rutas Relativas (PyInstaller) ---
 def resource_path(relative_path):
@@ -48,12 +49,30 @@ class CRMLegalApp:
         # --- Crear la Barra de Menú ---
         menubar = tk.Menu(self.root)
         filemenu = tk.Menu(menubar, tearoff=0)
-        filemenu.add_command(label="Mostrar Ventana", command=self._mostrar_ventana_callback)
+        filemenu.add_command(label="Mostrar Ventana", 
+                            command=self._mostrar_ventana_callback)
         filemenu.add_separator()
         filemenu.add_command(label="Ocultar a Bandeja", command=self.ocultar_a_bandeja)
         filemenu.add_separator()
         filemenu.add_command(label="Salir (Cerrar Aplicación)", command=self.cerrar_aplicacion_directamente)
         menubar.add_cascade(label="Archivo", menu=filemenu)
+
+# --- INICIO DE LA MODIFICACIÓN: AÑADIR MENÚ ADMINISTRACIÓN ---
+        adminmenu = tk.Menu(menubar, tearoff=0)  # 1. Creamos un nuevo objeto Menu, hijo de la barra principal 'menubar'
+        #    tearoff=0 evita que el menú se pueda "desprender" de la barra.
+
+        adminmenu.add_command(label="Crear Copia de Seguridad...",  # 2. Añadimos un comando (una opción) a este nuevo menú.
+                            command=self.crear_copia_de_seguridad) # 3. 'command' especifica qué método se llamará
+                            #    cuando se haga clic en esta opción.
+                            #    Crearemos este método 'crear_copia_de_seguridad' más adelante.
+
+        # Aquí, en el futuro, podríamos añadir más opciones a 'adminmenu', como:
+        # adminmenu.add_command(label="Restaurar Copia de Seguridad...", command=self.restaurar_copia_de_seguridad) # Ejemplo futuro
+        # adminmenu.add_command(label="Mis Datos / Config. Estudio...", command=self.abrir_dialogo_datos_usuario) # Ejemplo futuro
+        
+        menubar.add_cascade(label="Administración", menu=adminmenu) # 4. Finalmente, añadimos nuestro 'adminmenu' a la 'menubar'
+        #    principal, dándole la etiqueta "Administración".
+
         self.root.config(menu=menubar)
         # --- Fin Barra de Menú ---
 
@@ -78,6 +97,10 @@ class CRMLegalApp:
 
         # db.create_tables() # Se llama automáticamente al importar crm_database.py
 
+        # --- INICIALIZACIÓN DEL NUEVO FLAG ---
+        self.adminmenu_created_flag = False 
+        # --- FIN DE LA INICIALIZACIÓN ---
+
         # --- Crear Widgets ---
         self.create_widgets()
 
@@ -95,6 +118,68 @@ class CRMLegalApp:
 
         # --- Manejar cierre de ventana para ocultar a bandeja ---
         self.root.protocol("WM_DELETE_WINDOW", self.ocultar_a_bandeja)
+
+    def crear_copia_de_seguridad(self):
+        print("[Backup] Iniciando proceso de creación de copia de seguridad...") # Mensaje para tu consola
+        try:
+            # 1. Generar un nombre de archivo sugerido para la copia de seguridad.
+            #    Incluye la fecha y hora para que cada copia sea única y fácil de identificar.
+            timestamp_actual = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            nombre_base_db = os.path.basename(db.DATABASE_FILE) # Obtiene solo el nombre del archivo, ej. "crm_legal.db"
+            nombre_sugerido = f"{os.path.splitext(nombre_base_db)[0]}_backup_{timestamp_actual}.db"
+            # Esto creará algo como "crm_legal_backup_2025-05-17_10-30-00.db"
+
+            # 2. Abrir el diálogo estándar de "Guardar como".
+            #    Esto permite al usuario elegir dónde quiere guardar la copia y con qué nombre.
+            ruta_destino_backup = filedialog.asksaveasfilename(
+                title="Guardar Copia de Seguridad como...",
+                initialdir=os.path.expanduser("~"), # Sugerir el directorio "home" del usuario inicialmente
+                initialfile=nombre_sugerido, # El nombre que sugerimos arriba
+                defaultextension=".db", # Extensión por defecto si el usuario no la escribe
+                filetypes=[("Archivos de Base de Datos SQLite", "*.db"), 
+                            ("Todos los archivos", "*.*")], # Opciones para el tipo de archivo
+                parent=self.root # Para que el diálogo aparezca centrado sobre la ventana principal
+            )
+
+            # 3. Verificar si el usuario seleccionó una ruta (no presionó "Cancelar").
+            if ruta_destino_backup: # Si la cadena no está vacía, el usuario eligió un archivo.
+                ruta_origen_db = db.DATABASE_FILE # La ruta a tu base de datos actual.
+
+                # 3a. (Verificación opcional pero buena) Asegurarse de que la BD original exista.
+                if not os.path.exists(ruta_origen_db):
+                    messagebox.showerror("Error de Backup", 
+                                        f"El archivo de base de datos original no se encontró en:\n{ruta_origen_db}\n\nNo se puede crear la copia de seguridad.",
+                                        parent=self.root)
+                    print(f"[Backup] Error: No se encontró la base de datos original en '{ruta_origen_db}'")
+                    return # Salir del método si la BD original no existe.
+
+                # 4. Realizar la copia del archivo.
+                shutil.copy2(ruta_origen_db, ruta_destino_backup)
+                # shutil.copy2 intenta copiar también los metadatos del archivo (como fecha de modificación).
+
+                # 5. Informar al usuario que la copia fue exitosa.
+                messagebox.showinfo("Copia de Seguridad Exitosa", 
+                                    f"La copia de seguridad se guardó correctamente en:\n{ruta_destino_backup}", 
+                                    parent=self.root)
+                print(f"[Backup] Copia de seguridad creada exitosamente en: {ruta_destino_backup}")
+            else:
+                # El usuario presionó "Cancelar" en el diálogo de guardar.
+                print("[Backup] Creación de copia de seguridad cancelada por el usuario.")
+        
+        except PermissionError: # Si no hay permisos para escribir en la ubicación elegida.
+            messagebox.showerror("Error de Permisos", 
+                                "No se pudo escribir la copia de seguridad en la ubicación seleccionada.\nPor favor, verifique los permisos de la carpeta.", 
+                                parent=self.root)
+            print(f"[Backup] Error de permisos al intentar escribir en '{ruta_destino_backup if 'ruta_destino_backup' in locals() and ruta_destino_backup else 'ubicación seleccionada'}'")
+
+        except Exception as e: # Capturar cualquier otro error inesperado.
+            messagebox.showerror("Error Inesperado en Backup", 
+                                f"Ocurrió un error inesperado al crear la copia de seguridad:\n{type(e).__name__}: {e}", 
+                                parent=self.root)
+            print(f"[Backup] Error inesperado durante la creación de la copia de seguridad: {e}")
+            import traceback
+            traceback.print_exc() # Imprime el traceback completo en la consola para depuración.
+
 
     def cerrar_aplicacion_directamente(self):
         if messagebox.askokcancel("Confirmar Salida", "¿Estás seguro de que quieres cerrar completamente la aplicación?", parent=self.root):
@@ -231,6 +316,11 @@ class CRMLegalApp:
         document_scrollbar = ttk.Scrollbar(documents_tree_frame, orient=tk.VERTICAL, command=self.document_tree.yview); self.document_tree.configure(yscrollcommand=document_scrollbar.set); document_scrollbar.pack(side=tk.RIGHT, fill=tk.Y); self.document_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.document_tree.bind("<Double-1>", self.on_document_double_click)
 
+        # --- Pestaña de Tareas (NUEVA) ---
+        self.tareas_tab_frame = TareasTab(self.main_notebook, self) # 'self' es CRMLegalApp (app_controller)
+        self.main_notebook.add(self.tareas_tab_frame, text="Tareas/Plazos")
+        # --- Fin Pestaña de Tareas ---
+
         # --- Pestaña de Partes Intervinientes (MODULARIZADA) ---
         self.partes_tab_frame = PartesTab(self.main_notebook, self) # 'self' es CRMLegalApp (app_controller)
         self.main_notebook.add(self.partes_tab_frame, text="Partes")
@@ -283,16 +373,19 @@ class CRMLegalApp:
         # --- Estado Inicial de Pestañas y Botones ---
         self.main_notebook.tab(self.case_details_tab, state='disabled')
         self.main_notebook.tab(self.documents_tab, state='disabled')
+        self.main_notebook.tab(self.tareas_tab_frame, state='disabled') # NUEVA PESTAÑA TAREAS
         self.main_notebook.tab(self.partes_tab_frame, state='disabled') # Pestaña de Partes
         self.main_notebook.tab(self.seguimiento_tab_frame, state='disabled')
         
         # Establecer estado inicial de botones dentro de las pestañas modulares
+        if hasattr(self, 'tareas_tab_frame'):
+            self.tareas_tab_frame.set_add_button_state() # Llamada inicial para estado correcto
         if hasattr(self, 'seguimiento_tab_frame'):
             self.seguimiento_tab_frame.set_add_button_state(tk.DISABLED)
         if hasattr(self, 'partes_tab_frame'):
             self.partes_tab_frame.set_add_button_state(tk.DISABLED)
 
-        print("Widgets creados con estructura de 3 columnas y pestañas modulares.")
+        print("Widgets creados con estructura de 3 columnas y pestañas modulares + TareasTab.")
 
     # --- Métodos de Lógica CRM (Clientes y Casos) ---
     def load_clients(self):
@@ -305,6 +398,9 @@ class CRMLegalApp:
         self.clear_case_list() # Esto ya llama a clear_case_details que limpia documentos y deshabilita pestañas
         self.disable_client_buttons()
         # Las pestañas y sus contenidos se manejan en clear_case_details y on_case_select
+        if hasattr(self, 'tareas_tab_frame'):
+            self.main_notebook.tab(self.tareas_tab_frame, state='disabled')
+            self.tareas_tab_frame.load_tareas(None) # Limpiar tareas
         self.update_add_audiencia_button_state()
 
 
@@ -328,7 +424,17 @@ class CRMLegalApp:
                 self.clear_client_details()
                 self.clear_case_list() # Limpia casos y detalles de caso (incluyendo pestañas)
                 self.disable_client_buttons()
+
+            if not self.selected_client: # Si la selección de cliente falla o no es válida      
+                if hasattr(self, 'tareas_tab_frame'):
+                    self.main_notebook.tab(self.tareas_tab_frame, state='disabled')
+                    self.tareas_tab_frame.load_tareas(None)
+
         else: # No hay items seleccionados en client_tree
+            if hasattr(self, 'tareas_tab_frame'):
+                self.main_notebook.tab(self.tareas_tab_frame, state='disabled')
+                self.tareas_tab_frame.load_tareas(None)
+            
             self.selected_client = None
             self.clear_client_details()
             self.clear_case_list() # Limpia casos y detalles de caso (incluyendo pestañas)
@@ -412,7 +518,21 @@ class CRMLegalApp:
             if hasattr(self, 'partes_tab_frame'): # NUEVO
                 self.partes_tab_frame.load_partes(None)
                 self.partes_tab_frame.set_add_button_state(None) # Esto llama a _update_action_buttons_state
+        
+        if self.selected_case:
+            # ... (lógica existente para detalles, documentos, botones, otras pestañas) ...
+            if hasattr(self, 'tareas_tab_frame'):
+                self.tareas_tab_frame.load_tareas(self.selected_case['id'])
+                self.tareas_tab_frame.set_add_button_state()
+        else: # No hay caso seleccionado o la selección falló
+            # ... (lógica existente para limpiar detalles, otras pestañas) ...
+            if hasattr(self, 'tareas_tab_frame'):
+                self.tareas_tab_frame.load_tareas(None)
+                self.tareas_tab_frame.set_add_button_state()
 
+        self.root.update_idletasks() 
+        #print(f"[DEBUG on_case_select] ANTES de update_add_audiencia_button_state -> self.selected_case: {self.selected_case}")
+        self.update_add_audiencia_button_state()
 
     def display_case_details(self, case_data):
         if case_data:
@@ -463,9 +583,11 @@ class CRMLegalApp:
             self.main_notebook.tab(self.partes_tab_frame, state='normal')
         if hasattr(self, 'seguimiento_tab_frame'):
             self.main_notebook.tab(self.seguimiento_tab_frame, state='normal')
+        if hasattr(self, 'tareas_tab_frame'):
+            self.main_notebook.tab(self.tareas_tab_frame, state='normal')
         
         if self.selected_case: # Al seleccionar un caso, por defecto ir a Detalles del Caso
-             self.main_notebook.select(self.case_details_tab)
+            self.main_notebook.select(self.case_details_tab)
 
     def disable_detail_tabs_for_case(self):
         self.main_notebook.tab(self.case_details_tab, state='disabled')
@@ -481,6 +603,318 @@ class CRMLegalApp:
             if hasattr(self.seguimiento_tab_frame, 'load_actividades'): # Seguridad adicional
                 self.seguimiento_tab_frame.load_actividades(None)
 
+        if hasattr(self, 'tareas_tab_frame'):
+            self.main_notebook.tab(self.tareas_tab_frame, state='disabled')
+            if hasattr(self.tareas_tab_frame, 'load_tareas'):
+                self.tareas_tab_frame.load_tareas(None) 
+
+# --- NUEVOS MÉTODOS PARA DIÁLOGOS Y LÓGICA DE TAREAS ---
+
+    def open_tarea_dialog(self, tarea_id=None, caso_id=None):
+        """Abre el diálogo para agregar o editar una tarea."""
+        print(f"[open_tarea_dialog] Iniciando. tarea_id: {tarea_id}, caso_id: {caso_id}")
+
+        # Determinar el caso_id y nombre del caso para el título y asociación
+        current_caso_id = None
+        case_display_name = "Tarea General" # Por defecto si no hay caso
+        
+        if tarea_id: # Editando tarea existente
+            tarea_data_dict = self.db_crm.get_tarea_by_id(tarea_id)
+            if not tarea_data_dict:
+                messagebox.showerror("Error", f"No se pudo cargar la tarea ID {tarea_id}.", parent=self.root)
+                return
+            current_caso_id = tarea_data_dict.get('caso_id')
+            if current_caso_id:
+                case_info = self.db_crm.get_case_by_id(current_caso_id)
+                case_display_name = case_info.get('caratula', f"ID {current_caso_id}") if case_info else f"ID {current_caso_id}"
+            dialog_title = f"Editar Tarea ID: {tarea_id}"
+        elif caso_id: # Nueva tarea para un caso específico (pasado desde TareasTab)
+            current_caso_id = caso_id
+            case_info = self.db_crm.get_case_by_id(current_caso_id)
+            case_display_name = case_info.get('caratula', f"ID {current_caso_id}") if case_info else f"ID {current_caso_id}"
+            dialog_title = f"Agregar Tarea a Caso: {case_display_name[:40]}"
+            tarea_data_dict = {} # Vacío para nueva tarea
+        elif self.selected_case : # Nueva tarea, caso seleccionado en la UI principal
+            current_caso_id = self.selected_case['id']
+            case_display_name = self.selected_case.get('caratula', f"ID {current_caso_id}")
+            dialog_title = f"Agregar Tarea a Caso: {case_display_name[:40]}"
+            tarea_data_dict = {}
+        else: # Nueva tarea general (si se implementa esta lógica en TareasTab)
+            dialog_title = "Agregar Tarea General"
+            tarea_data_dict = {}
+            # current_caso_id permanece None
+
+        dialog = Toplevel(self.root)
+        dialog.title(dialog_title)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(True, True) # Permitir redimensionar por el campo de notas/descripción
+
+        # Geometría y centrado
+        dialog_width = 550; dialog_height = 580 # Ajustar según necesidad
+        parent_x = self.root.winfo_x(); parent_y = self.root.winfo_y()
+        parent_width = self.root.winfo_width(); parent_height = self.root.winfo_height()
+        x_pos = parent_x + (parent_width - dialog_width) // 2
+        y_pos = parent_y + (parent_height - dialog_height) // 2
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x_pos}+{y_pos}")
+        dialog.minsize(dialog_width - 100, dialog_height - 150)
+
+
+        frame = ttk.Frame(dialog, padding="15")
+        frame.pack(expand=True, fill=tk.BOTH)
+        frame.columnconfigure(1, weight=1) # Columna de widgets expandible
+
+        # Variables de Tkinter para los campos
+        descripcion_var = tk.StringVar(value=tarea_data_dict.get('descripcion', '')) # Se usará con Text
+        
+        # Fecha de Vencimiento
+        fecha_venc_str = tarea_data_dict.get('fecha_vencimiento', '')
+        # DateEntry necesita un objeto date, o None si está vacío.
+        fecha_venc_dt_obj = None
+        if fecha_venc_str:
+            try:
+                fecha_venc_dt_obj = datetime.datetime.strptime(fecha_venc_str, "%Y-%m-%d").date()
+            except ValueError:
+                print(f"Advertencia: Fecha de vencimiento '{fecha_venc_str}' con formato incorrecto, se ignora.")
+        
+        prioridad_var = tk.StringVar(value=tarea_data_dict.get('prioridad', 'Media'))
+        estado_var = tk.StringVar(value=tarea_data_dict.get('estado', 'Pendiente'))
+        notas_var = tk.StringVar(value=tarea_data_dict.get('notas', '')) # Se usará con Text
+        es_plazo_var = tk.IntVar(value=tarea_data_dict.get('es_plazo_procesal', 0))
+        recordatorio_activo_var = tk.IntVar(value=tarea_data_dict.get('recordatorio_activo', 0))
+        recordatorio_dias_var = tk.IntVar(value=tarea_data_dict.get('recordatorio_dias_antes', 1))
+
+
+        # Creación de Widgets del Diálogo
+        row_idx = 0
+        if current_caso_id:
+            ttk.Label(frame, text="Caso Asociado:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+            ttk.Label(frame, text=case_display_name, wraplength=350).grid(row=row_idx, column=1, sticky=tk.W, pady=3, padx=5)
+            row_idx += 1
+
+        ttk.Label(frame, text="*Descripción:").grid(row=row_idx, column=0, sticky=tk.NW, pady=(5,2), padx=5)
+        desc_text_frame = ttk.Frame(frame); desc_text_frame.grid(row=row_idx, column=1, sticky=tk.NSEW, pady=2, padx=5)
+        desc_text_frame.columnconfigure(0, weight=1); desc_text_frame.rowconfigure(0, weight=1)
+        desc_text_widget = tk.Text(desc_text_frame, height=5, width=40, wrap=tk.WORD)
+        desc_text_widget.grid(row=0, column=0, sticky='nsew')
+        desc_scroll = ttk.Scrollbar(desc_text_frame, orient=tk.VERTICAL, command=desc_text_widget.yview)
+        desc_scroll.grid(row=0, column=1, sticky='ns')
+        desc_text_widget['yscrollcommand'] = desc_scroll.set
+        desc_text_widget.insert('1.0', tarea_data_dict.get('descripcion', ''))
+        frame.rowconfigure(row_idx, weight=1) # Permitir que descripción se expanda
+        row_idx += 1
+
+        ttk.Label(frame, text="Fecha Vencimiento:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        # Usar DateEntry de tkcalendar
+        # Si fecha_venc_dt_obj es None, DateEntry se mostrará sin fecha seleccionada.
+        # Al leerlo, si no hay fecha, get_date() podría dar error o un valor que hay que manejar.
+        # O podemos usar un Entry simple y validar el formato YYYY-MM-DD
+        fecha_venc_entry = DateEntry(frame, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='dd-mm-y', locale='es_ES')
+        if fecha_venc_dt_obj:
+            fecha_venc_entry.set_date(fecha_venc_dt_obj)
+        else:
+            # Para que no muestre la fecha actual por defecto si no hay fecha de vencimiento
+            # Necesitamos una forma de que esté "vacío" o poner un placeholder.
+            # DateEntry no tiene un "estado vacío" fácil. Podríamos usar un Checkbutton para habilitarlo.
+            # Por ahora, si no hay fecha, se mostrará la fecha actual. El usuario deberá borrarla o cambiarla.
+            # O usar un Entry normal y validar. Vamos con Entry normal por simplicidad para el estado vacío.
+            pass # Se deja el DateEntry como está, el usuario debe seleccionar o dejar la actual.
+                 # Si se quiere vacío, mejor un ttk.Entry y validación.
+                 # Para este ejemplo, usaremos DateEntry. Si get_date() da error al guardar, es que no se puso fecha.
+        fecha_venc_entry.grid(row=row_idx, column=1, sticky=tk.W, pady=3, padx=5)
+        row_idx += 1
+        
+        # Para permitir "sin fecha de vencimiento" con DateEntry, una alternativa sería:
+        # fecha_venc_frame = ttk.Frame(frame)
+        # fecha_venc_frame.grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5)
+        # fecha_venc_var_presente = tk.IntVar(value=1 if fecha_venc_dt_obj else 0)
+        # fecha_venc_check = ttk.Checkbutton(fecha_venc_frame, text="Definir Vencimiento", variable=fecha_venc_var_presente, command=lambda: fecha_venc_entry.config(state=tk.NORMAL if fecha_venc_var_presente.get() else tk.DISABLED))
+        # fecha_venc_check.pack(side=tk.LEFT)
+        # fecha_venc_entry = DateEntry(fecha_venc_frame, width=12, ..., state=(tk.NORMAL if fecha_venc_dt_obj else tk.DISABLED))
+        # if fecha_venc_dt_obj: fecha_venc_entry.set_date(fecha_venc_dt_obj)
+        # fecha_venc_entry.pack(side=tk.LEFT, padx=5)
+
+
+        ttk.Label(frame, text="Prioridad:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        prioridades = ["Alta", "Media", "Baja"]
+        ttk.Combobox(frame, textvariable=prioridad_var, values=prioridades, state="readonly", width=15).grid(row=row_idx, column=1, sticky=tk.W, pady=3, padx=5)
+        row_idx += 1
+
+        ttk.Label(frame, text="Estado:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        estados = ["Pendiente", "En Progreso", "Completada", "Cancelada"]
+        # Si es una nueva tarea, el estado "Completada" o "Cancelada" no debería ser una opción inicial común.
+        # Pero para editar, sí.
+        estado_combo = ttk.Combobox(frame, textvariable=estado_var, values=estados, state="readonly", width=15)
+        estado_combo.grid(row=row_idx, column=1, sticky=tk.W, pady=3, padx=5)
+        row_idx += 1
+
+        ttk.Checkbutton(frame, text="¿Es Plazo Procesal?", variable=es_plazo_var).grid(row=row_idx, column=0, columnspan=2, sticky=tk.W, pady=3, padx=5)
+        row_idx += 1
+        
+        # Sección Recordatorio
+        rec_frame_tarea = ttk.LabelFrame(frame, text="Recordatorio")
+        rec_frame_tarea.grid(row=row_idx, column=0, columnspan=2, sticky=tk.EW, pady=5, padx=5)
+        ttk.Checkbutton(rec_frame_tarea, text="Activar Recordatorio", variable=recordatorio_activo_var).pack(side=tk.LEFT, padx=5)
+        ttk.Label(rec_frame_tarea, text="Días antes:").pack(side=tk.LEFT, padx=(10,2))
+        ttk.Spinbox(rec_frame_tarea, from_=0, to=30, width=3, textvariable=recordatorio_dias_var).pack(side=tk.LEFT, padx=2)
+        row_idx += 1
+        
+        ttk.Label(frame, text="Notas Adicionales:").grid(row=row_idx, column=0, sticky=tk.NW, pady=(5,2), padx=5)
+        notas_text_frame = ttk.Frame(frame); notas_text_frame.grid(row=row_idx, column=1, sticky=tk.NSEW, pady=2, padx=5)
+        notas_text_frame.columnconfigure(0, weight=1); notas_text_frame.rowconfigure(0, weight=1)
+        notas_text_widget_dialog = tk.Text(notas_text_frame, height=4, width=40, wrap=tk.WORD)
+        notas_text_widget_dialog.grid(row=0, column=0, sticky='nsew')
+        notas_scroll_dialog = ttk.Scrollbar(notas_text_frame, orient=tk.VERTICAL, command=notas_text_widget_dialog.yview)
+        notas_scroll_dialog.grid(row=0, column=1, sticky='ns')
+        notas_text_widget_dialog['yscrollcommand'] = notas_scroll_dialog.set
+        notas_text_widget_dialog.insert('1.0', tarea_data_dict.get('notas', ''))
+        frame.rowconfigure(row_idx, weight=1) # Permitir que notas se expanda
+        row_idx += 1
+        
+        button_frame_dialog = ttk.Frame(frame); button_frame_dialog.grid(row=row_idx, column=0, columnspan=2, pady=15, sticky=tk.E)
+        
+        def on_save_wrapper():
+            # Obtener fecha de DateEntry. Si no se seleccionó, get_date() podría dar error.
+            # O si el DateEntry no está "presente" (ej. por un check), no intentar obtenerla.
+            fecha_venc_final_str = None
+            try:
+                # DateEntry devuelve un objeto date de Python. Convertir a YYYY-MM-DD string.
+                fecha_venc_dt = fecha_venc_entry.get_date()
+                fecha_venc_final_str = fecha_venc_dt.strftime("%Y-%m-%d")
+            except Exception: # tkcalendar.DateEntryError si el campo está mal o vacío, o AttributeError si no hay get_date
+                # Aquí decidimos si una fecha vacía es un error o significa "sin fecha"
+                # print("Advertencia: No se pudo obtener fecha de vencimiento del DateEntry, se guardará como None.")
+                # Si queremos que "no poner fecha" sea válido, la dejamos como None.
+                # Si queremos que sea obligatoria (excepto si es un plazo donde se calcula), hay que validar.
+                # Por ahora, si da error, asumimos que no se ingresó/es inválida.
+                pass 
+
+            self._save_tarea(
+                tarea_id=tarea_id, 
+                caso_id=current_caso_id,
+                descripcion=desc_text_widget.get("1.0", tk.END).strip(),
+                fecha_vencimiento=fecha_venc_final_str, # Usar el string formateado o None
+                prioridad=prioridad_var.get(),
+                estado=estado_var.get(),
+                notas=notas_text_widget_dialog.get("1.0", tk.END).strip(),
+                es_plazo_procesal=es_plazo_var.get(),
+                recordatorio_activo=recordatorio_activo_var.get(),
+                recordatorio_dias_antes=recordatorio_dias_var.get(),
+                dialog=dialog
+            )
+
+        ttk.Button(button_frame_dialog, text="Guardar Tarea", command=on_save_wrapper).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame_dialog, text="Cancelar", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+        desc_text_widget.focus_set() # Foco en el primer campo útil
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        self.root.wait_window(dialog)
+
+
+    def _save_tarea(self, tarea_id, caso_id, descripcion, fecha_vencimiento, prioridad, estado, notas, es_plazo_procesal, recordatorio_activo, recordatorio_dias_antes, dialog):
+        if not descripcion.strip():
+            messagebox.showerror("Validación", "La descripción de la tarea es obligatoria.", parent=dialog)
+            return
+
+        # Podríamos añadir más validaciones aquí (ej. formato de fecha si no usamos DateEntry)
+
+        success = False
+        msg_op = ""
+
+        if tarea_id is None: # Nueva tarea
+            new_id = self.db_crm.add_tarea(
+                descripcion=descripcion, caso_id=caso_id, fecha_vencimiento=fecha_vencimiento,
+                prioridad=prioridad, estado=estado, notas=notas,
+                es_plazo_procesal=es_plazo_procesal, recordatorio_activo=recordatorio_activo,
+                recordatorio_dias_antes=recordatorio_dias_antes
+            )
+            success = new_id is not None
+            msg_op = "agregada"
+        else: # Editar tarea
+            success = self.db_crm.update_tarea(
+                tarea_id=tarea_id, descripcion=descripcion, fecha_vencimiento=fecha_vencimiento,
+                prioridad=prioridad, estado=estado, notas=notas,
+                es_plazo_procesal=es_plazo_procesal, recordatorio_activo=recordatorio_activo,
+                recordatorio_dias_antes=recordatorio_dias_antes
+            )
+            msg_op = "actualizada"
+            # Nota: update_tarea en crm_database ya maneja si hay cambios o no.
+
+        if success:
+            messagebox.showinfo("Éxito", f"Tarea {msg_op} con éxito.", parent=self.root)
+            dialog.destroy()
+            # Recargar la lista de tareas en la pestaña correspondiente
+            if hasattr(self, 'tareas_tab_frame'):
+                if caso_id: # Si la tarea está asociada a un caso, recargar las tareas de ese caso
+                    self.tareas_tab_frame.load_tareas(caso_id=caso_id)
+                # else:
+                    # Si implementamos una vista de "todas las tareas", recargar esa vista.
+                    # self.tareas_tab_frame.load_tareas(mostrar_solo_pendientes_activas=True) 
+        else:
+            messagebox.showerror("Error", f"No se pudo {msg_op} la tarea. Verifique la consola.", parent=dialog)
+
+
+    def marcar_tarea_como_completada(self, tarea_id, caso_id_asociado):
+        """ Cambia el estado de la tarea seleccionada a 'Completada'. """
+        if not tarea_id:
+            messagebox.showwarning("Aviso", "No hay tarea seleccionada.", parent=self.root)
+            return
+        
+        # Confirmación opcional
+        # if not messagebox.askyesno("Confirmar", "¿Marcar esta tarea como completada?", parent=self.root):
+        # return
+
+        # Obtenemos la descripción para el mensaje de éxito, aunque no es estrictamente necesario
+        tarea_data = self.db_crm.get_tarea_by_id(tarea_id)
+        desc_corta = tarea_data.get('descripcion', f"ID {tarea_id}")[:30] if tarea_data else f"ID {tarea_id}"
+
+        success = self.db_crm.update_tarea(tarea_id=tarea_id, estado="Completada")
+        
+        if success:
+            messagebox.showinfo("Tarea Completada", f"Tarea '{desc_corta}...' marcada como completada.", parent=self.root)
+            if hasattr(self, 'tareas_tab_frame'):
+                # Recargar la lista de tareas del caso actual o la vista global
+                if self.selected_case and self.selected_case['id'] == caso_id_asociado :
+                     self.tareas_tab_frame.load_tareas(caso_id=self.selected_case['id'])
+                elif caso_id_asociado: # Si la tarea era de otro caso (no debería pasar si el botón depende de selección)
+                     self.tareas_tab_frame.load_tareas(caso_id=caso_id_asociado)
+                # else:
+                    # self.tareas_tab_frame.load_tareas(mostrar_solo_pendientes_activas=True) # Para vista global
+        else:
+            messagebox.showerror("Error", "No se pudo actualizar el estado de la tarea.", parent=self.root)
+
+
+    def delete_selected_tarea(self, tarea_id, caso_id_asociado):
+        """ Elimina la tarea seleccionada después de confirmación. """
+        if not tarea_id:
+            messagebox.showwarning("Aviso", "No hay tarea seleccionada para eliminar.", parent=self.root)
+            return
+
+        tarea_data = self.db_crm.get_tarea_by_id(tarea_id)
+        desc_confirm = tarea_data.get('descripcion', f"ID {tarea_id}")[:50] if tarea_data else f"ID {tarea_id}"
+
+        if messagebox.askyesno("Confirmar Eliminación",
+                                f"¿Está seguro de que desea eliminar la tarea:\n'{desc_confirm}...'?",
+                                parent=self.root, icon='warning'):
+            
+            success = self.db_crm.delete_tarea(tarea_id)
+            if success:
+                messagebox.showinfo("Tarea Eliminada", f"Tarea '{desc_confirm}...' eliminada correctamente.", parent=self.root)
+                if hasattr(self, 'tareas_tab_frame'):
+                    # Recargar la lista de tareas del caso actual o la vista global
+                    if self.selected_case and self.selected_case['id'] == caso_id_asociado:
+                        self.tareas_tab_frame.load_tareas(caso_id=self.selected_case['id'])
+                    elif caso_id_asociado:
+                         self.tareas_tab_frame.load_tareas(caso_id=caso_id_asociado)
+                    # else:
+                        # self.tareas_tab_frame.load_tareas(mostrar_solo_pendientes_activas=True)
+            else:
+                messagebox.showerror("Error", f"No se pudo eliminar la tarea '{desc_confirm}...'.", parent=self.root)
+
+    # ... (resto de tus métodos existentes: backup, audiencias, recordatorios, etc.) ...
+    # ... (asegúrate que el método `crear_copia_de_seguridad` esté aquí también) ...
+
+# ... (tu `if __name__ == "__main__":` y el `root.mainloop()` al final) ...
 
     def open_client_dialog(self, client_id=None):
         is_edit = client_id is not None; dialog = tk.Toplevel(self.root)
@@ -1059,6 +1493,8 @@ class CRMLegalApp:
         state = tk.DISABLED; self.edit_audiencia_btn.config(state=state); self.delete_audiencia_btn.config(state=state); self.share_audiencia_btn.config(state=state); self.open_link_audiencia_btn.config(state=state)
 
     def update_add_audiencia_button_state(self): # Botón global para agregar audiencia
+        is_case_selected = self.selected_case is not None
+        print(f"[DEBUG update_add_audiencia_button_state] self.selected_case is {'SET' if is_case_selected else 'None'}. Button state to: {'NORMAL' if is_case_selected else 'DISABLED'}")
         self.add_audiencia_btn.config(state=tk.NORMAL if self.selected_case else tk.DISABLED)
 
 

@@ -119,6 +119,55 @@ def create_tables():
                 ON partes_intervinientes (caso_id);
             ''')
 
+            # Crear tabla para usuario/abogado
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS datos_usuario (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    nombre_abogado TEXT,
+                    matricula_nacion TEXT,
+                    matricula_pba TEXT,
+                    matricula_federal TEXT,
+                    domicilio_procesal_caba TEXT,
+                    zona_notificacion TEXT,
+                    domicilio_procesal_pba TEXT,
+                    telefono_estudio TEXT,
+                    email_estudio TEXT,
+                    cuit TEXT,
+                    legajo_prev TEXT,
+                    domicilio_electrónico_pba TEXT,
+                    otros_datos TEXT
+                );
+            ''')
+            # Opcional: Insertar una fila por defecto si la tabla está vacía la primera vez
+            # Esto asegura que siempre haya una fila para actualizar, simplificando la lógica de guardado.
+            cursor.execute('''
+                INSERT OR IGNORE INTO datos_usuario (id) VALUES (1);
+            ''')
+
+            # --- NUEVA TABLA: tareas ---
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS tareas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    caso_id INTEGER,                     -- Puede ser NULL para tareas generales
+                    descripcion TEXT NOT NULL,
+                    fecha_creacion TEXT NOT NULL,        -- YYYY-MM-DD HH:MM:SS
+                    fecha_vencimiento TEXT,              -- YYYY-MM-DD (la hora es opcional o fin del día)
+                    prioridad TEXT DEFAULT 'Media',      -- Ej: 'Alta', 'Media', 'Baja'
+                    estado TEXT NOT NULL DEFAULT 'Pendiente', -- Ej: 'Pendiente', 'En Progreso', 'Completada', 'Cancelada'
+                    notas TEXT,
+                    es_plazo_procesal INTEGER DEFAULT 0, -- 0 para False, 1 para True
+                    recordatorio_activo INTEGER DEFAULT 0,
+                    recordatorio_dias_antes INTEGER DEFAULT 1,
+                    fecha_ultima_notificacion TEXT,      -- Para controlar notificaciones repetitivas
+                    FOREIGN KEY (caso_id) REFERENCES casos(id) ON DELETE SET NULL -- O CASCADE si quieres que se borren con el caso
+                );
+            ''')
+            # Índices para búsquedas comunes en tareas
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tareas_caso_id ON tareas (caso_id);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tareas_fecha_vencimiento ON tareas (fecha_vencimiento);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tareas_estado ON tareas (estado);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tareas_recordatorio_activo ON tareas (recordatorio_activo, fecha_vencimiento);')
+            # --- FIN NUEVA TABLA tareas ---
 
             conn.commit()
             print("Tablas verificadas/creadas con éxito (partes_intervinientes actualizada).")
@@ -129,6 +178,59 @@ def create_tables():
             close_db(conn)
 
 # --- Funciones CRUD para Clientes (sin cambios) ---
+
+def get_datos_usuario():
+    conn = connect_db()
+    datos = None
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM datos_usuario WHERE id = 1")
+            row = cursor.fetchone()
+            if row:
+                datos = dict(row)
+        except sqlite3.Error as e:
+            print(f"Error al obtener datos del usuario: {e}")
+        finally:
+            close_db(conn)
+    return datos
+
+def save_datos_usuario(**kwargs):
+    conn = connect_db()
+    success = False
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Construir la parte SET de la consulta dinámicamente
+            # Asegurarse de que 'id' no esté en los campos a actualizar
+            campos_a_actualizar = {k: v for k, v in kwargs.items() if k != 'id'}
+            
+            if not campos_a_actualizar:
+                print("Advertencia: No se proporcionaron campos para actualizar en save_datos_usuario.")
+                return False # O True, si no hacer nada se considera éxito
+
+            set_clause = ", ".join([f"{key} = ?" for key in campos_a_actualizar.keys()])
+            valores = list(campos_a_actualizar.values())
+            
+            # Siempre actualizamos la fila con id = 1
+            sql = f"UPDATE datos_usuario SET {set_clause} WHERE id = 1"
+            
+            cursor.execute(sql, valores)
+            conn.commit()
+            if cursor.rowcount > 0:
+                print("Datos del usuario guardados con éxito.")
+                success = True
+            else:
+                # Podría ser que no hubo cambios o la fila id=1 no existía (si no se usó INSERT OR IGNORE)
+                print("Datos del usuario no necesitaron actualización o no se encontró la fila (id=1).")
+                success = True # Considerar éxito si no hay error
+        except sqlite3.Error as e:
+            print(f"Error al guardar datos del usuario: {e}")
+            conn.rollback()
+        finally:
+            close_db(conn)
+    return success
+
 def add_client(nombre, direccion="", email="", whatsapp=""):
     conn = connect_db()
     if conn:
@@ -172,7 +274,7 @@ def get_client_by_id(client_id):
             cursor.execute('SELECT id, nombre, direccion, email, whatsapp, created_at FROM clientes WHERE id = ?', (client_id,))
             row = cursor.fetchone()
             if row:
-                 client_data = dict(row)
+                client_data = dict(row)
         except sqlite3.Error as e:
             print(f"Error al obtener cliente por ID {client_id}: {e}")
         finally:
@@ -271,7 +373,7 @@ def get_case_by_id(case_id):
             ''', (case_id,))
             row = cursor.fetchone()
             if row:
-                 case_data = dict(row)
+                case_data = dict(row)
         except sqlite3.Error as e:
             print(f"Error al obtener caso por ID {case_id}: {e}")
         finally:
@@ -465,6 +567,253 @@ def delete_actividad_caso(actividad_id):
         finally:
             close_db(conn)
     return success
+
+# --- NUEVAS Funciones CRUD para Tareas ---
+def add_tarea(descripcion, caso_id=None, fecha_vencimiento=None, prioridad='Media', estado='Pendiente', notas=None, es_plazo_procesal=0, recordatorio_activo=0, recordatorio_dias_antes=1):
+    """ Agrega una nueva tarea. """
+    conn = connect_db()
+    new_id = None
+    if conn:
+        try:
+            cursor = conn.cursor()
+            fecha_creacion = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Asegurarse de que fecha_vencimiento (si se provee) solo sea fecha YYYY-MM-DD
+            if fecha_vencimiento:
+                try:
+                    # Intenta parsear para validar y reformatear si es necesario (ej. si viene con hora)
+                    fecha_venc_dt = datetime.datetime.strptime(fecha_vencimiento, "%Y-%m-%d %H:%M:%S") # Si podría venir con hora
+                    fecha_vencimiento = fecha_venc_dt.strftime("%Y-%m-%d")
+                except ValueError:
+                    try:
+                        fecha_venc_dt = datetime.datetime.strptime(fecha_vencimiento, "%Y-%m-%d")
+                        fecha_vencimiento = fecha_venc_dt.strftime("%Y-%m-%d") # Ya está en formato correcto
+                    except ValueError:
+                        print(f"Advertencia: Formato de fecha_vencimiento ('{fecha_vencimiento}') no válido. Se guardará como NULL.")
+                        fecha_vencimiento = None
+            
+            cursor.execute('''
+                INSERT INTO tareas (caso_id, descripcion, fecha_creacion, fecha_vencimiento, prioridad, estado, notas, es_plazo_procesal, recordatorio_activo, recordatorio_dias_antes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (caso_id, descripcion, fecha_creacion, fecha_vencimiento, prioridad, estado, notas, es_plazo_procesal, recordatorio_activo, recordatorio_dias_antes))
+            conn.commit()
+            new_id = cursor.lastrowid
+            if new_id and caso_id:
+                update_last_activity(caso_id) # Actualizar timestamp del caso si la tarea está asociada
+            print(f"Tarea ID {new_id} ('{descripcion[:30]}...') agregada.")
+        except sqlite3.Error as e:
+            print(f"Error al agregar tarea: {e}")
+            conn.rollback()
+        finally:
+            close_db(conn)
+    return new_id
+
+def get_tarea_by_id(tarea_id):
+    """ Obtiene una tarea específica por su ID. """
+    conn = connect_db()
+    tarea_data = None
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Podríamos hacer un JOIN con casos si quisiéramos el nombre del caso aquí,
+            # pero para la edición directa de la tarea, esto es suficiente.
+            cursor.execute("SELECT * FROM tareas WHERE id = ?", (tarea_id,))
+            row = cursor.fetchone()
+            if row:
+                tarea_data = dict(row)
+        except sqlite3.Error as e:
+            print(f"Error al obtener tarea por ID {tarea_id}: {e}")
+        finally:
+            close_db(conn)
+    return tarea_data
+
+def get_tareas_by_caso_id(caso_id, incluir_completadas=False, orden="fecha_vencimiento_asc"):
+    """ Obtiene todas las tareas para un caso específico. """
+    conn = connect_db()
+    tareas = []
+    if conn:
+        try:
+            cursor = conn.cursor()
+            sql = "SELECT * FROM tareas WHERE caso_id = ?"
+            params = [caso_id]
+
+            if not incluir_completadas:
+                sql += " AND estado NOT IN (?, ?)"
+                params.extend(["Completada", "Cancelada"])
+            
+            if orden == "fecha_vencimiento_asc":
+                # Ordenar poniendo NULLs al final, luego por fecha, luego por prioridad
+                sql += " ORDER BY CASE WHEN fecha_vencimiento IS NULL THEN 1 ELSE 0 END, fecha_vencimiento ASC, CASE prioridad WHEN 'Alta' THEN 1 WHEN 'Media' THEN 2 WHEN 'Baja' THEN 3 ELSE 4 END ASC"
+            elif orden == "prioridad":
+                sql += " ORDER BY CASE prioridad WHEN 'Alta' THEN 1 WHEN 'Media' THEN 2 WHEN 'Baja' THEN 3 ELSE 4 END ASC, CASE WHEN fecha_vencimiento IS NULL THEN 1 ELSE 0 END, fecha_vencimiento ASC"
+            # Añadir más órdenes si es necesario
+
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+            tareas = [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error al obtener tareas para el caso ID {caso_id}: {e}")
+        finally:
+            close_db(conn)
+    return tareas
+
+def update_tarea(tarea_id, descripcion, fecha_vencimiento=None, prioridad=None, estado=None, notas=None, es_plazo_procesal=None, recordatorio_activo=None, recordatorio_dias_antes=None):
+    """ Actualiza una tarea existente. Solo actualiza los campos que se proporcionan (no son None). """
+    conn = connect_db()
+    success = False
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # Obtener datos actuales y caso_id para actualizar last_activity
+            current_tarea = get_tarea_by_id(tarea_id)
+            if not current_tarea:
+                print(f"Error: Tarea ID {tarea_id} no encontrada para actualizar.")
+                return False
+
+            # Construir la consulta dinámicamente
+            fields_to_update = []
+            values = []
+
+            if descripcion is not None:
+                fields_to_update.append("descripcion = ?")
+                values.append(descripcion)
+            
+            # Manejo especial para fecha_vencimiento (puede ser None para quitarla)
+            if fecha_vencimiento is not None: # Si se pasa algo (incluso cadena vacía)
+                if fecha_vencimiento == "": # Si es cadena vacía, interpretamos como quitar fecha
+                    fields_to_update.append("fecha_vencimiento = ?")
+                    values.append(None)
+                else: # Intentar parsear y formatear
+                    try:
+                        fv_dt = datetime.datetime.strptime(fecha_vencimiento, "%Y-%m-%d")
+                        fields_to_update.append("fecha_vencimiento = ?")
+                        values.append(fv_dt.strftime("%Y-%m-%d"))
+                    except ValueError:
+                        print(f"Advertencia: Formato de fecha_vencimiento ('{fecha_vencimiento}') no válido al actualizar. No se cambiará.")
+            
+            if prioridad is not None:
+                fields_to_update.append("prioridad = ?")
+                values.append(prioridad)
+            if estado is not None:
+                fields_to_update.append("estado = ?")
+                values.append(estado)
+            if notas is not None:
+                fields_to_update.append("notas = ?")
+                values.append(notas)
+            if es_plazo_procesal is not None:
+                fields_to_update.append("es_plazo_procesal = ?")
+                values.append(int(es_plazo_procesal)) # Asegurar 0 o 1
+            if recordatorio_activo is not None:
+                fields_to_update.append("recordatorio_activo = ?")
+                values.append(int(recordatorio_activo))
+            if recordatorio_dias_antes is not None:
+                fields_to_update.append("recordatorio_dias_antes = ?")
+                values.append(recordatorio_dias_antes)
+
+            if not fields_to_update:
+                print(f"Advertencia: No se proporcionaron campos para actualizar en tarea ID {tarea_id}.")
+                return True # No es un error, simplemente no hay nada que hacer
+
+            values.append(tarea_id) # Para el WHERE id = ?
+            sql = f"UPDATE tareas SET {', '.join(fields_to_update)} WHERE id = ?"
+            
+            cursor.execute(sql, values)
+            conn.commit()
+
+            if cursor.rowcount > 0:
+                print(f"Tarea ID {tarea_id} actualizada con éxito.")
+                if current_tarea.get('caso_id'):
+                    update_last_activity(current_tarea['caso_id'])
+                success = True
+            else:
+                print(f"Tarea ID {tarea_id} no necesitó actualización (datos iguales).")
+                success = True # Considerar éxito si no hay error SQL
+
+        except sqlite3.Error as e:
+            print(f"Error al actualizar tarea ID {tarea_id}: {e}")
+            conn.rollback()
+        finally:
+            close_db(conn)
+    return success
+
+def delete_tarea(tarea_id):
+    """ Elimina una tarea. """
+    conn = connect_db()
+    success = False
+    if conn:
+        try:
+            current_tarea = get_tarea_by_id(tarea_id) # Para obtener caso_id
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM tareas WHERE id = ?', (tarea_id,))
+            conn.commit()
+            if cursor.rowcount > 0:
+                print(f"Tarea ID {tarea_id} eliminada con éxito.")
+                if current_tarea and current_tarea.get('caso_id'):
+                    update_last_activity(current_tarea['caso_id'])
+                success = True
+            else:
+                print(f"Advertencia: No se eliminó ninguna tarea con ID {tarea_id} (quizás ya no existía).")
+                success = False # O True si "no existe" es un resultado aceptable de "eliminar"
+        except sqlite3.Error as e:
+            print(f"Error al eliminar tarea ID {tarea_id}: {e}")
+            conn.rollback()
+        finally:
+            close_db(conn)
+    return success
+
+def get_tareas_para_notificacion():
+    """ Obtiene tareas con recordatorio activo cuya fecha de vencimiento está próxima o pasada y no han sido notificadas hoy. """
+    conn = connect_db()
+    tareas_a_notificar = []
+    if conn:
+        try:
+            cursor = conn.cursor()
+            hoy_str_db = datetime.date.today().strftime("%Y-%m-%d") # Fecha de hoy para comparar
+            # Seleccionar tareas con recordatorio activo, que no estén completadas/canceladas
+            # y cuya fecha de recordatorio (vencimiento - dias_antes) sea hoy o anterior
+            # y que la fecha de vencimiento no sea muy antigua (ej. más de 30 días pasada) para no notificar indefinidamente.
+            # Y que no hayan sido notificadas hoy.
+            # Esta consulta puede necesitar ajustes finos.
+            cursor.execute("""
+                SELECT t.id, t.descripcion, t.fecha_vencimiento, t.prioridad, t.recordatorio_dias_antes, t.caso_id, c.caratula as caso_caratula
+                FROM tareas t
+                LEFT JOIN casos c ON t.caso_id = c.id
+                WHERE t.recordatorio_activo = 1
+                    AND t.estado NOT IN ('Completada', 'Cancelada')
+                    AND t.fecha_vencimiento IS NOT NULL
+                    AND DATE(t.fecha_vencimiento, '-' || t.recordatorio_dias_antes || ' day') <= ? -- Fecha de recordatorio es hoy o antes
+                    AND DATE(t.fecha_vencimiento) >= DATE(?, '-30 day') -- No notificar si venció hace más de 30 días
+                    AND (t.fecha_ultima_notificacion IS NULL OR DATE(t.fecha_ultima_notificacion) != ?)
+                ORDER BY t.fecha_vencimiento ASC, CASE t.prioridad WHEN 'Alta' THEN 1 WHEN 'Media' THEN 2 WHEN 'Baja' THEN 3 ELSE 4 END ASC
+            """, (hoy_str_db, hoy_str_db, hoy_str_db))
+            rows = cursor.fetchall()
+            tareas_a_notificar = [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error al obtener tareas para notificación: {e}")
+        finally:
+            close_db(conn)
+    return tareas_a_notificar
+
+def update_fecha_ultima_notificacion_tarea(tarea_id):
+    """ Actualiza la fecha_ultima_notificacion de una tarea a ahora. """
+    conn = connect_db()
+    success = False
+    if conn:
+        try:
+            cursor = conn.cursor()
+            ahora_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute("UPDATE tareas SET fecha_ultima_notificacion = ? WHERE id = ?", (ahora_str, tarea_id))
+            conn.commit()
+            success = cursor.rowcount > 0
+        except sqlite3.Error as e:
+            print(f"Error al actualizar fecha_ultima_notificacion para tarea ID {tarea_id}: {e}")
+            conn.rollback()
+        finally:
+            close_db(conn)
+    return success
+
+# --- Fin NUEVAS Funciones CRUD para Tareas ---
 
 # --- Funciones CRUD para Audiencias (sin cambios en su lógica principal) ---
 def add_audiencia(caso_id, fecha, hora, descripcion, link="", recordatorio_activo=0, recordatorio_minutos=15):
@@ -715,8 +1064,8 @@ def update_parte_interviniente(parte_id, nombre, tipo, direccion, contacto, nota
                 print(f"Parte ID {parte_id} actualizada con éxito.")
                 success = True
             elif cursor.rowcount == 0:
-                 print(f"Parte ID {parte_id} no necesitó actualización (datos iguales) o no se encontró.")
-                 success = True # Considerar éxito si no hay error, aunque no haya filas cambiadas
+                print(f"Parte ID {parte_id} no necesitó actualización (datos iguales) o no se encontró.")
+                success = True # Considerar éxito si no hay error, aunque no haya filas cambiadas
             else:
                 success = False
 
