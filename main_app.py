@@ -242,6 +242,9 @@ class CRMLegalApp:
         ttk.Label(client_details_frame, text="Dirección:").grid(row=1, column=0, sticky=tk.W, pady=1, padx=5); self.client_detail_address_lbl = ttk.Label(client_details_frame, text="", wraplength=200); self.client_detail_address_lbl.grid(row=1, column=1, sticky=tk.EW, pady=1, padx=5)
         ttk.Label(client_details_frame, text="Email:").grid(row=2, column=0, sticky=tk.W, pady=1, padx=5); self.client_detail_email_lbl = ttk.Label(client_details_frame, text="", wraplength=200); self.client_detail_email_lbl.grid(row=2, column=1, sticky=tk.EW, pady=1, padx=5)
         ttk.Label(client_details_frame, text="WhatsApp:").grid(row=3, column=0, sticky=tk.W, pady=1, padx=5); self.client_detail_whatsapp_lbl = ttk.Label(client_details_frame, text="", wraplength=200); self.client_detail_whatsapp_lbl.grid(row=3, column=1, sticky=tk.EW, pady=1, padx=5)
+        ttk.Label(client_details_frame, text="Etiquetas:").grid(row=4, column=0, sticky=tk.W, pady=1, padx=5)
+        self.client_detail_tags_lbl = ttk.Label(client_details_frame, text="", wraplength=200)
+        self.client_detail_tags_lbl.grid(row=4, column=1, sticky=tk.EW, pady=1, padx=5)
 
         # --- Columna 2: Casos / Calendario ---
         col2_frame = ttk.Frame(crm_main_frame); col2_frame.grid(row=0, column=1, sticky='nsew', padx=5, pady=5)
@@ -291,16 +294,83 @@ class CRMLegalApp:
 
         # Pestaña Detalles del Caso
         self.case_details_tab = ttk.Frame(self.main_notebook, padding="10"); self.main_notebook.add(self.case_details_tab, text='Detalles del Caso')
-        self.case_details_tab.columnconfigure(1, weight=1); self.case_details_tab.rowconfigure(5, weight=1) # Notas se expanden
-        ttk.Label(self.case_details_tab, text="Carátula:").grid(row=0, column=0, sticky=tk.W, pady=2); self.caratula_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300); self.caratula_lbl.grid(row=0, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Expediente:").grid(row=1, column=0, sticky=tk.W, pady=2); self.expediente_lbl = ttk.Label(self.case_details_tab, text=""); self.expediente_lbl.grid(row=1, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Juzgado:").grid(row=2, column=0, sticky=tk.W, pady=2); self.juzgado_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300); self.juzgado_lbl.grid(row=2, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Jurisdicción:").grid(row=3, column=0, sticky=tk.W, pady=2); self.jurisdiccion_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300); self.jurisdiccion_lbl.grid(row=3, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Etapa Procesal:").grid(row=4, column=0, sticky=tk.W, pady=2); self.etapa_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300); self.etapa_lbl.grid(row=4, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Notas:").grid(row=5, column=0, sticky=tk.NW, pady=2); self.notas_text = tk.Text(self.case_details_tab, height=4, wrap=tk.WORD, state=tk.DISABLED); self.notas_text.grid(row=5, column=1, sticky=tk.NSEW, pady=2); notas_scrollbar = ttk.Scrollbar(self.case_details_tab, orient=tk.VERTICAL, command=self.notas_text.yview); notas_scrollbar.grid(row=5, column=2, sticky=tk.NS, pady=2); self.notas_text['yscrollcommand'] = notas_scrollbar.set
-        inactivity_frame = ttk.LabelFrame(self.case_details_tab, text="Alarma Inactividad", padding="5"); inactivity_frame.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=5); inactivity_frame.columnconfigure(1, weight=1)
-        ttk.Label(inactivity_frame, text="Habilitada:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=1); self.inactivity_enabled_lbl = ttk.Label(inactivity_frame, text=""); self.inactivity_enabled_lbl.grid(row=0, column=1, sticky=tk.W, pady=1)
-        ttk.Label(inactivity_frame, text="Umbral Días:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=1); self.inactivity_threshold_lbl = ttk.Label(inactivity_frame, text=""); self.inactivity_threshold_lbl.grid(row=1, column=1, sticky=tk.W, pady=1)
+
+        self.case_details_tab.columnconfigure(0, weight=0) # Etiqueta de campo (ancho fijo)
+        self.case_details_tab.columnconfigure(1, weight=1) # Valor del campo (expandible)
+        self.case_details_tab.columnconfigure(2, weight=0) # Etiqueta de campo (ancho fijo)
+        self.case_details_tab.columnconfigure(3, weight=1) # Valor del campo (expandible)
+        current_row = 0 # Para llevar la cuenta de las filas
+
+        # Carátula (ocupa ambas "columnas de valor" para más espacio si es necesario)
+        ttk.Label(self.case_details_tab, text="Carátula:").grid(row=current_row, column=0, sticky=tk.W, pady=2, padx=2)
+        self.caratula_lbl = ttk.Label(self.case_details_tab, text="") # Prueba sin wraplength aquí
+        self.caratula_lbl.grid(row=current_row, column=1, columnspan=3, sticky=tk.EW, pady=2, padx=2) # columnspan=3 para usar cols 1, 2, 3
+        current_row += 1
+
+        ttk.Label(self.case_details_tab, text="Expediente:").grid(row=current_row, column=0, sticky=tk.W, pady=2, padx=2)
+        self.expediente_lbl = ttk.Label(self.case_details_tab, text="")
+        self.expediente_lbl.grid(row=current_row, column=1, columnspan=3, sticky=tk.EW, pady=2, padx=2) # columnspan=3
+        current_row += 1
+
+        ttk.Label(self.case_details_tab, text="Juzgado:").grid(row=current_row, column=0, sticky=tk.W, pady=2, padx=2)
+        self.juzgado_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300) # wraplength aquí puede ser útil
+        self.juzgado_lbl.grid(row=current_row, column=1, columnspan=3, sticky=tk.EW, pady=2, padx=2) # columnspan=3
+        current_row += 1
+
+        ttk.Label(self.case_details_tab, text="Jurisdicción:").grid(row=current_row, column=0, sticky=tk.W, pady=2, padx=2)
+        self.jurisdiccion_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300) # wraplength aquí
+        self.jurisdiccion_lbl.grid(row=current_row, column=1, columnspan=3, sticky=tk.EW, pady=2, padx=2) # columnspan=3
+        current_row += 1
+
+        # Etapa Procesal y Etiquetas Caso en la misma fila
+        ttk.Label(self.case_details_tab, text="Etapa Procesal:").grid(row=current_row, column=0, sticky=tk.W, pady=2, padx=2)
+        self.etapa_lbl = ttk.Label(self.case_details_tab, text="")
+        self.etapa_lbl.grid(row=current_row, column=1, sticky=tk.EW, pady=2, padx=2)
+
+        ttk.Label(self.case_details_tab, text="Etiquetas Caso:").grid(row=current_row, column=2, sticky=tk.W, pady=2, padx=10) # padx=10 para separar de etapa
+        self.case_detail_tags_lbl = ttk.Label(self.case_details_tab, text="")
+        self.case_detail_tags_lbl.grid(row=current_row, column=3, sticky=tk.EW, pady=2, padx=2)
+        current_row += 1
+        
+        # Notas (ahora en la fila que corresponda, ocupando las columnas de valor)
+        ttk.Label(self.case_details_tab, text="Notas:").grid(row=current_row, column=0, sticky=tk.NW, pady=2, padx=2)
+        self.notas_text = tk.Text(self.case_details_tab, height=4, wrap=tk.WORD, state=tk.DISABLED)
+        # Que las notas ocupen el espacio de las columnas 1 y 3 (las de valores)
+        self.notas_text.grid(row=current_row, column=1, columnspan=3, sticky=tk.NSEW, pady=2, padx=2) 
+        
+        # Configurar la fila de notas para que se expanda verticalmente
+        self.case_details_tab.rowconfigure(current_row, weight=1) 
+        
+        # Scrollbar para las notas (asociado a la misma celda que notas_text o una adyacente si fuera necesario)
+        # Para que el scrollbar quede bien al lado de un widget con columnspan, a veces es más fácil meter
+        # el Text y el Scrollbar en un Frame propio, y ese Frame en la celda con columnspan.
+        # Pero probemos así primero, puede que necesitemos ajustar la columna del scrollbar.
+        # notas_scrollbar = ttk.Scrollbar(self.case_details_tab, orient=tk.VERTICAL, command=self.notas_text.yview)
+        # notas_scrollbar.grid(row=current_row, column=4, sticky=tk.NS, pady=2) # Necesitaría una columna 4 o ajustar
+        # self.notas_text['yscrollcommand'] = notas_scrollbar.set
+        # Por simplicidad, si el scrollbar no se ve bien con columnspan, podemos omitirlo o usar el frame wrapper.
+        # Vamos a intentar añadirlo en una columna adicional solo para él
+        self.case_details_tab.columnconfigure(4, weight=0) # Columna para el scrollbar de notas
+        notas_scrollbar = ttk.Scrollbar(self.case_details_tab, orient=tk.VERTICAL, command=self.notas_text.yview)
+        notas_scrollbar.grid(row=current_row, column=4, sticky=tk.NS, pady=2, padx=(0,2))
+        self.notas_text['yscrollcommand'] = notas_scrollbar.set
+        current_row += 1
+
+
+        # Alarma Inactividad (debajo de notas, ocupando todas las columnas)
+        inactivity_frame = ttk.LabelFrame(self.case_details_tab, text="Alarma Inactividad", padding="5")
+        inactivity_frame.grid(row=current_row, column=0, columnspan=5, sticky=tk.EW, pady=5, padx=2) # columnspan=5 para todas las columnas
+        inactivity_frame.columnconfigure(1, weight=1) # Para que el label del valor se expanda
+        ttk.Label(inactivity_frame, text="Habilitada:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=1)
+        self.inactivity_enabled_lbl = ttk.Label(inactivity_frame, text="")
+        self.inactivity_enabled_lbl.grid(row=0, column=1, sticky=tk.W, pady=1)
+        ttk.Label(inactivity_frame, text="Umbral Días:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=1)
+        self.inactivity_threshold_lbl = ttk.Label(inactivity_frame, text="")
+        self.inactivity_threshold_lbl.grid(row=1, column=1, sticky=tk.W, pady=1)
+        current_row += 1
+
+        # Configurar la última fila para que no se expanda innecesariamente si no hay más contenido
+        self.case_details_tab.rowconfigure(current_row, weight=0)
 
         # Pestaña Documentación
         self.documents_tab = ttk.Frame(self.main_notebook, padding="10"); self.main_notebook.add(self.documents_tab, text='Documentación')
@@ -442,17 +512,41 @@ class CRMLegalApp:
         self.update_add_audiencia_button_state()
 
 
+    # En main_app.py, dentro de la clase CRMLegalApp
+
     def display_client_details(self, client_data):
         if client_data:
             self.client_detail_name_lbl.config(text=client_data.get('nombre', 'N/A'))
             self.client_detail_address_lbl.config(text=client_data.get('direccion', 'N/A'))
             self.client_detail_email_lbl.config(text=client_data.get('email', 'N/A'))
             self.client_detail_whatsapp_lbl.config(text=client_data.get('whatsapp', 'N/A'))
-        else: self.clear_client_details()
+
+            # --- MOSTRAR ETIQUETAS ---
+            nombres_etiquetas = [] # Inicializar como lista vacía
+            client_id = client_data.get('id')
+            if client_id: 
+                etiquetas_obj = db.get_etiquetas_de_cliente(client_id)
+                nombres_etiquetas = [e['nombre_etiqueta'] for e in etiquetas_obj]
+            
+            if hasattr(self, 'client_detail_tags_lbl'):
+                self.client_detail_tags_lbl.config(text=", ".join(nombres_etiquetas).capitalize() if nombres_etiquetas else "Ninguna") # Usar capitalize para la primera letra
+            else:
+                # Esto es solo para depuración si el widget no se creó, no debería pasar si create_widgets es correcto
+                print(f"[Detalles Cliente ERROR] self.client_detail_tags_lbl no existe.")
+                print(f"[Detalles Cliente] Etiquetas para ID {client_id}: {', '.join(nombres_etiquetas) if nombres_etiquetas else 'Ninguna'}")
+            # --- FIN MOSTRAR ETIQUETAS ---
+        else:
+            self.clear_client_details()
 
     def clear_client_details(self):
-        self.client_detail_name_lbl.config(text=""); self.client_detail_address_lbl.config(text="")
-        self.client_detail_email_lbl.config(text=""); self.client_detail_whatsapp_lbl.config(text="")
+        self.client_detail_name_lbl.config(text="")
+        self.client_detail_address_lbl.config(text="")
+        self.client_detail_email_lbl.config(text="")
+        self.client_detail_whatsapp_lbl.config(text="")
+        # Si añades un Label para etiquetas, también límpialo aquí:
+        if hasattr(self, 'client_detail_tags_lbl'):
+            self.client_detail_tags_lbl.config(text="")
+
 
     def enable_client_buttons(self):
         self.edit_client_btn.config(state=tk.NORMAL); self.delete_client_btn.config(state=tk.NORMAL)
@@ -542,6 +636,18 @@ class CRMLegalApp:
             self.juzgado_lbl.config(text=case_data.get('juzgado', 'N/A'))
             self.jurisdiccion_lbl.config(text=case_data.get('jurisdiccion', 'N/A'))
             self.etapa_lbl.config(text=case_data.get('etapa_procesal', 'N/A'))
+
+            # --- MOSTRAR ETIQUETAS DEL CASO ---
+            nombres_etiquetas_caso = []
+            case_id_for_tags = case_data.get('id')
+            if case_id_for_tags:
+                etiquetas_obj = db.get_etiquetas_de_caso(case_id_for_tags)
+                nombres_etiquetas_caso = [e['nombre_etiqueta'] for e in etiquetas_obj]
+            
+            if hasattr(self, 'case_detail_tags_lbl'):
+                self.case_detail_tags_lbl.config(text=", ".join(nombres_etiquetas_caso).capitalize() if nombres_etiquetas_caso else "Ninguna")
+            # --- FIN MOSTRAR ETIQUETAS DEL CASO ---
+
             self.notas_text.config(state=tk.NORMAL); self.notas_text.delete('1.0', tk.END); self.notas_text.insert('1.0', case_data.get('notas', '')); self.notas_text.config(state=tk.DISABLED)
             inactivity_enabled = "Sí" if case_data.get('inactivity_enabled') else "No"
             inactivity_threshold = case_data.get('inactivity_threshold_days', 30)
@@ -559,6 +665,14 @@ class CRMLegalApp:
     def clear_case_details(self):
         self.caratula_lbl.config(text=""); self.expediente_lbl.config(text=""); self.juzgado_lbl.config(text="")
         self.jurisdiccion_lbl.config(text=""); self.etapa_lbl.config(text="")
+
+        self.etapa_lbl.config(text="")
+
+        # --- LIMPIAR LABEL DE ETIQUETAS DEL CASO ---
+        if hasattr(self, 'case_detail_tags_lbl'):
+            self.case_detail_tags_lbl.config(text="")
+        # --- FIN LIMPIAR LABEL ---
+
         self.notas_text.config(state=tk.NORMAL); self.notas_text.delete('1.0', tk.END); self.notas_text.config(state=tk.DISABLED)
         self.inactivity_enabled_lbl.config(text=""); self.inactivity_threshold_lbl.config(text="")
         
@@ -566,7 +680,6 @@ class CRMLegalApp:
         self.folder_path_lbl.config(text="Selecciona un caso para ver/asignar carpeta");
         self.select_folder_btn.config(state=tk.DISABLED); self.open_folder_btn.config(state=tk.DISABLED)
         self.clear_document_list()
-        
         self.disable_case_buttons()
         self.disable_detail_tabs_for_case() # Esto también limpia las pestañas modulares
 
@@ -905,7 +1018,7 @@ class CRMLegalApp:
                     if self.selected_case and self.selected_case['id'] == caso_id_asociado:
                         self.tareas_tab_frame.load_tareas(caso_id=self.selected_case['id'])
                     elif caso_id_asociado:
-                         self.tareas_tab_frame.load_tareas(caso_id=caso_id_asociado)
+                        self.tareas_tab_frame.load_tareas(caso_id=caso_id_asociado)
                     # else:
                         # self.tareas_tab_frame.load_tareas(mostrar_solo_pendientes_activas=True)
             else:
@@ -916,37 +1029,151 @@ class CRMLegalApp:
 
 # ... (tu `if __name__ == "__main__":` y el `root.mainloop()` al final) ...
 
+    # En main_app.py, dentro de la clase CRMLegalApp
+
     def open_client_dialog(self, client_id=None):
-        is_edit = client_id is not None; dialog = tk.Toplevel(self.root)
-        dialog.title("Editar Cliente" if is_edit else "Agregar Cliente"); dialog.transient(self.root); dialog.grab_set(); dialog.resizable(False, False)
-        frame = ttk.Frame(dialog, padding="15"); frame.pack(fill=tk.BOTH, expand=True); name_var = tk.StringVar(); address_var = tk.StringVar(); email_var = tk.StringVar(); whatsapp_var = tk.StringVar()
+        is_edit = client_id is not None
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Editar Cliente" if is_edit else "Agregar Nuevo Cliente")
+        dialog.transient(self.root); dialog.grab_set(); dialog.resizable(False, False) # Podría ser resizable si añadimos más
+        
+        frame = ttk.Frame(dialog, padding="15"); frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Variables de Tkinter
+        name_var = tk.StringVar()
+        address_var = tk.StringVar()
+        email_var = tk.StringVar()
+        whatsapp_var = tk.StringVar()
+        etiquetas_var = tk.StringVar() # <--- NUEVA VARIABLE PARA ETIQUETAS
+
         if is_edit:
             client_data = db.get_client_by_id(client_id)
-            if client_data: name_var.set(client_data.get('nombre', '')); address_var.set(client_data.get('direccion', '')); email_var.set(client_data.get('email', '')); whatsapp_var.set(client_data.get('whatsapp', ''))
-            else: messagebox.showerror("Error", "No se pudo cargar datos.", parent=dialog); dialog.destroy(); return
-        ttk.Label(frame, text="Nombre:").grid(row=0, column=0, sticky=tk.W, pady=5, padx=5); name_entry = ttk.Entry(frame, textvariable=name_var, width=40); name_entry.grid(row=0, column=1, sticky=tk.EW, pady=5, padx=5)
-        ttk.Label(frame, text="Dirección:").grid(row=1, column=0, sticky=tk.W, pady=5, padx=5); address_entry = ttk.Entry(frame, textvariable=address_var, width=40); address_entry.grid(row=1, column=1, sticky=tk.EW, pady=5, padx=5)
-        ttk.Label(frame, text="Email:").grid(row=2, column=0, sticky=tk.W, pady=5, padx=5); email_entry = ttk.Entry(frame, textvariable=email_var, width=40); email_entry.grid(row=2, column=1, sticky=tk.EW, pady=5, padx=5)
-        ttk.Label(frame, text="WhatsApp:").grid(row=3, column=0, sticky=tk.W, pady=5, padx=5); whatsapp_entry = ttk.Entry(frame, textvariable=whatsapp_var, width=40); whatsapp_entry.grid(row=3, column=1, sticky=tk.EW, pady=5, padx=5)
-        frame.columnconfigure(1, weight=1); button_frame = ttk.Frame(frame); button_frame.grid(row=4, column=0, columnspan=2, pady=15)
-        ttk.Button(button_frame, text="Guardar", command=lambda: self.save_client(client_id, name_var.get(), address_var.get(), email_var.get(), whatsapp_var.get(), dialog)).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancelar", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
-        name_entry.focus_set(); self.root.wait_window(dialog)
+            if client_data:
+                name_var.set(client_data.get('nombre', ''))
+                address_var.set(client_data.get('direccion', ''))
+                email_var.set(client_data.get('email', ''))
+                whatsapp_var.set(client_data.get('whatsapp', ''))
+                
+                # Cargar etiquetas existentes para este cliente
+                etiquetas_actuales_obj = db.get_etiquetas_de_cliente(client_id)
+                etiquetas_actuales_nombres = [e['nombre_etiqueta'] for e in etiquetas_actuales_obj]
+                etiquetas_var.set(", ".join(etiquetas_actuales_nombres)) # <--- MOSTRAR ETIQUETAS
+            else:
+                messagebox.showerror("Error", "No se pudieron cargar los datos del cliente.", parent=dialog)
+                dialog.destroy()
+                return
 
-    def save_client(self, client_id, nombre, direccion, email, whatsapp, dialog):
-        if not nombre.strip(): messagebox.showwarning("Advertencia", "El nombre no puede estar vacío.", parent=dialog); return
-        success = False; msg_op = ""
-        if client_id is None:
+        # Layout de los widgets
+        row_idx = 0
+        ttk.Label(frame, text="Nombre Completo:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        name_entry = ttk.Entry(frame, textvariable=name_var, width=40)
+        name_entry.grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5); row_idx += 1
+
+        ttk.Label(frame, text="Dirección:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        address_entry = ttk.Entry(frame, textvariable=address_var, width=40)
+        address_entry.grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5); row_idx += 1
+
+        ttk.Label(frame, text="Email:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        email_entry = ttk.Entry(frame, textvariable=email_var, width=40)
+        email_entry.grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5); row_idx += 1
+
+        ttk.Label(frame, text="WhatsApp:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        whatsapp_entry = ttk.Entry(frame, textvariable=whatsapp_var, width=40)
+        whatsapp_entry.grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5); row_idx += 1
+
+        # --- NUEVO CAMPO PARA ETIQUETAS ---
+        ttk.Label(frame, text="Etiquetas:").grid(row=row_idx, column=0, sticky=tk.W, pady=(10,3), padx=5)
+        ttk.Label(frame, text="(separadas por coma)").grid(row=row_idx, column=1, sticky=tk.E, pady=(10,3), padx=0) # Pequeña ayuda
+        row_idx += 1
+        etiquetas_entry = ttk.Entry(frame, textvariable=etiquetas_var, width=40)
+        etiquetas_entry.grid(row=row_idx, column=0, columnspan=2, sticky=tk.EW, pady=3, padx=5)
+        row_idx += 1
+        # --- FIN NUEVO CAMPO ---
+
+        frame.columnconfigure(1, weight=1) # Para que los Entry se expandan
+        
+        button_frame = ttk.Frame(frame)
+        button_frame.grid(row=row_idx, column=0, columnspan=2, pady=15)
+        
+        # Modificar el comando del botón Guardar para pasar etiquetas_var.get()
+        save_command = lambda: self.save_client(
+            client_id, 
+            name_var.get(), 
+            address_var.get(), 
+            email_var.get(), 
+            whatsapp_var.get(),
+            etiquetas_var.get(), # <--- PASAR ETIQUETAS
+            dialog
+        )
+        ttk.Button(button_frame, text="Guardar", command=save_command).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancelar", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+        name_entry.focus_set()
+        self.root.wait_window(dialog)
+
+    # En main_app.py, dentro de la clase CRMLegalApp
+
+    def save_client(self, client_id, nombre, direccion, email, whatsapp, etiquetas_str, dialog): # <--- NUEVO PARÁMETRO etiquetas_str
+        if not nombre.strip():
+            messagebox.showwarning("Advertencia", "El nombre del cliente no puede estar vacío.", parent=dialog)
+            return
+
+        success_main_data = False
+        saved_client_id = client_id # Usaremos este ID para las etiquetas
+
+        if client_id is None: # Nuevo cliente
             new_id = db.add_client(nombre.strip(), direccion.strip(), email.strip(), whatsapp.strip())
-            success = new_id is not None; msg_op = "agregado"
+            if new_id:
+                success_main_data = True
+                saved_client_id = new_id # Guardar el ID del nuevo cliente
+                msg_op = "agregado"
+            else:
+                msg_op = "falló al agregar"
+        else: # Editar cliente
+            if db.update_client(client_id, nombre.strip(), direccion.strip(), email.strip(), whatsapp.strip()):
+                success_main_data = True
+                msg_op = "actualizado"
+                # Actualizar datos del cliente seleccionado si es el mismo
+                if self.selected_client and self.selected_client['id'] == client_id:
+                    self.selected_client = db.get_client_by_id(client_id)
+                    self.display_client_details(self.selected_client) # Esto también debería mostrar etiquetas actualizadas
+            else:
+                msg_op = "falló al actualizar"
+
+        if success_main_data:
+            # --- LÓGICA PARA GUARDAR ETIQUETAS ---
+            if saved_client_id is not None: # Solo procesar etiquetas si tenemos un ID de cliente válido
+                # 1. Obtener los nombres de las etiquetas ingresadas por el usuario
+                nombres_etiquetas_nuevas = [tag.strip().lower() for tag in etiquetas_str.split(',') if tag.strip()]
+                
+                # 2. Obtener las etiquetas actualmente asignadas al cliente desde la BD
+                etiquetas_actuales_obj_db = db.get_etiquetas_de_cliente(saved_client_id)
+                nombres_etiquetas_actuales_db = {e['nombre_etiqueta'].lower() for e in etiquetas_actuales_obj_db} # Usar un set para comparación eficiente
+
+                # 3. Determinar qué etiquetas añadir y cuáles quitar
+                ids_etiquetas_a_asignar = set()
+                for nombre_tag_nuevo in nombres_etiquetas_nuevas:
+                    tag_id = db.add_etiqueta(nombre_tag_nuevo) # add_etiqueta devuelve ID existente o crea nuevo
+                    if tag_id:
+                        ids_etiquetas_a_asignar.add(tag_id)
+                
+                etiquetas_ids_actuales_db = {e['id_etiqueta'] for e in etiquetas_actuales_obj_db}
+
+                # Etiquetas a asignar (nuevas o que ya estaban y deben permanecer)
+                for tag_id_to_assign in ids_etiquetas_a_asignar:
+                    db.asignar_etiqueta_a_cliente(saved_client_id, tag_id_to_assign)
+
+                # Etiquetas a quitar (estaban en BD pero no en la nueva lista del usuario)
+                ids_etiquetas_a_quitar = etiquetas_ids_actuales_db - ids_etiquetas_a_asignar
+                for tag_id_to_remove in ids_etiquetas_a_quitar:
+                    db.quitar_etiqueta_de_cliente(saved_client_id, tag_id_to_remove)
+            # --- FIN LÓGICA ETIQUETAS ---
+
+            messagebox.showinfo("Éxito", f"Cliente {msg_op} con éxito. Etiquetas actualizadas.", parent=self.root)
+            dialog.destroy()
+            self.load_clients() # Recargar la lista de clientes
         else:
-            success = db.update_client(client_id, nombre.strip(), direccion.strip(), email.strip(), whatsapp.strip())
-            msg_op = "actualizado"
-            if success and self.selected_client and self.selected_client['id'] == client_id:
-                self.selected_client = db.get_client_by_id(client_id) # Refrescar datos del cliente seleccionado
-                self.display_client_details(self.selected_client)
-        if success: messagebox.showinfo("Éxito", f"Cliente {msg_op}.", parent=self.root); dialog.destroy(); self.load_clients()
-        else: messagebox.showerror("Error", f"No se pudo {msg_op} el cliente.", parent=dialog)
+            messagebox.showerror("Error", f"No se pudo guardar la información principal del cliente.", parent=dialog)
 
     def delete_client(self):
         if not self.selected_client: messagebox.showwarning("Advertencia", "Selecciona un cliente."); return
@@ -971,65 +1198,198 @@ class CRMLegalApp:
             client_context_id = self.selected_client['id']; client_context_name = self.selected_client.get('nombre', f"ID {client_context_id}")
             dialog_title = f"Agregar Caso para: {client_context_name}"; case_data = {} # Datos iniciales vacíos
         
-        dialog = tk.Toplevel(self.root); dialog.title(dialog_title); dialog.transient(self.root); dialog.grab_set(); dialog.resizable(False, False)
-        frame = ttk.Frame(dialog, padding="15"); frame.pack(fill=tk.BOTH, expand=True); frame.columnconfigure(1, weight=1)
+        dialog = tk.Toplevel(self.root); dialog.title(dialog_title); dialog.transient(self.root); dialog.grab_set(); dialog.resizable(True, True)
         
-        caratula_var = tk.StringVar(value=case_data.get('caratula', '')); num_exp_var = tk.StringVar(value=case_data.get('numero_expediente', '')); anio_car_var = tk.StringVar(value=case_data.get('anio_caratula', '')); juzgado_var = tk.StringVar(value=case_data.get('juzgado', '')); jurisdiccion_var = tk.StringVar(value=case_data.get('jurisdiccion', '')); etapa_var = tk.StringVar(value=case_data.get('etapa_procesal', '')); notas_initial = case_data.get('notas', ''); ruta_var = tk.StringVar(value=case_data.get('ruta_carpeta', '')); inact_days_var = tk.IntVar(value=case_data.get('inactivity_threshold_days', 30)); inact_enabled_var = tk.IntVar(value=case_data.get('inactivity_enabled', 1))
+         # Geometría y centrado (puedes ajustar estos valores)
+        dialog_width = 580; dialog_height = 680 
+        parent_x = self.root.winfo_x(); parent_y = self.root.winfo_y()
+        parent_width = self.root.winfo_width(); parent_height = self.root.winfo_height()
+        x_pos = parent_x + (parent_width - dialog_width) // 2
+        y_pos = parent_y + (parent_height - dialog_height) // 2
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x_pos}+{y_pos}")
+        dialog.minsize(dialog_width - 80, dialog_height - 200)
+        dialog.resizable(True,True)
         
-        ttk.Label(frame, text="Cliente:").grid(row=0, column=0, sticky=tk.W, pady=3, padx=5); ttk.Label(frame, text=f"{client_context_name} (ID: {client_context_id})").grid(row=0, column=1, sticky=tk.W, pady=3, padx=5)
-        ttk.Label(frame, text="*Carátula:").grid(row=1, column=0, sticky=tk.W, pady=3, padx=5); caratula_entry = ttk.Entry(frame, textvariable=caratula_var, width=50); caratula_entry.grid(row=1, column=1, sticky=tk.EW, pady=3, padx=5)
-        ttk.Label(frame, text="Núm. Exp.:").grid(row=2, column=0, sticky=tk.W, pady=3, padx=5); ttk.Entry(frame, textvariable=num_exp_var, width=20).grid(row=2, column=1, sticky=tk.W, pady=3, padx=5)
-        ttk.Label(frame, text="Año Carát.:").grid(row=3, column=0, sticky=tk.W, pady=3, padx=5); ttk.Entry(frame, textvariable=anio_car_var, width=10).grid(row=3, column=1, sticky=tk.W, pady=3, padx=5)
-        ttk.Label(frame, text="Juzgado:").grid(row=4, column=0, sticky=tk.W, pady=3, padx=5); ttk.Entry(frame, textvariable=juzgado_var, width=50).grid(row=4, column=1, sticky=tk.EW, pady=3, padx=5)
-        ttk.Label(frame, text="Jurisdicción:").grid(row=5, column=0, sticky=tk.W, pady=3, padx=5); ttk.Entry(frame, textvariable=jurisdiccion_var, width=50).grid(row=5, column=1, sticky=tk.EW, pady=3, padx=5)
-        ttk.Label(frame, text="Etapa Procesal:").grid(row=6, column=0, sticky=tk.W, pady=3, padx=5); ttk.Entry(frame, textvariable=etapa_var, width=50).grid(row=6, column=1, sticky=tk.EW, pady=3, padx=5)
-        
-        ttk.Label(frame, text="Notas:").grid(row=7, column=0, sticky=tk.NW, pady=3, padx=5)
-        notas_frame_dialog = ttk.Frame(frame); notas_frame_dialog.grid(row=7, column=1, sticky=tk.NSEW, pady=3, padx=5)
-        notas_frame_dialog.rowconfigure(0, weight=1); notas_frame_dialog.columnconfigure(0, weight=1)
-        case_notas_text_dialog = tk.Text(notas_frame_dialog, height=4, wrap=tk.WORD); case_notas_text_dialog.grid(row=0, column=0, sticky='nsew')
-        case_notas_scroll_dialog = ttk.Scrollbar(notas_frame_dialog, orient=tk.VERTICAL, command=case_notas_text_dialog.yview); case_notas_scroll_dialog.grid(row=0, column=1, sticky='ns')
-        case_notas_text_dialog['yscrollcommand'] = case_notas_scroll_dialog.set; case_notas_text_dialog.insert('1.0', notas_initial)
-        frame.rowconfigure(7, weight=1) # Notas expandibles
+        frame = ttk.Frame(dialog, padding="15"); frame.pack(fill=tk.BOTH, expand=True); frame.columnconfigure(0, weight=0)
+        frame.columnconfigure(1, weight=1) # Columna para widgets de entrada (expandible)
+                
+        caratula_var = tk.StringVar(value=case_data.get('caratula', '')); num_exp_var = tk.StringVar(value=case_data.get('numero_expediente', '')); 
+        anio_car_var = tk.StringVar(value=case_data.get('anio_caratula', ''));
+        juzgado_var = tk.StringVar(value=case_data.get('juzgado', '')); jurisdiccion_var = tk.StringVar(value=case_data.get('jurisdiccion', ''));
+        etapa_var = tk.StringVar(value=case_data.get('etapa_procesal', '')); 
+        notas_initial_case = case_data.get('notas', ''); 
+        if notas_initial_case is None: # Si es None (aunque get con default '' lo evitaría)
+            notas_initial_case = ''   # Establecer a cadena vacía
 
-        ttk.Label(frame, text="Ruta Carpeta Docs:").grid(row=8, column=0, sticky=tk.W, pady=3, padx=5)
-        ruta_frame_dialog = ttk.Frame(frame); ruta_frame_dialog.grid(row=8, column=1, sticky=tk.EW, pady=3, padx=5)
-        ruta_frame_dialog.columnconfigure(0, weight=1)
-        ruta_entry_dialog = ttk.Entry(ruta_frame_dialog, textvariable=ruta_var, width=40); ruta_entry_dialog.grid(row=0, column=0, sticky=tk.EW, padx=(0,5))
-        # Podrías añadir un botón para seleccionar carpeta aquí también si lo deseas
+        ruta_var = tk.StringVar(value=case_data.get('ruta_carpeta', '')); inact_days_var = tk.IntVar(value=case_data.get('inactivity_threshold_days', 30)); 
+        inact_enabled_var = tk.IntVar(value=case_data.get('inactivity_enabled', 1))
+        etiquetas_caso_var = tk.StringVar() # <--- NUEVA VARIABLE PARA ETIQUETAS DEL CASO
+
+        if is_edit and case_id: # Solo cargar si estamos editando un caso existente
+            etiquetas_actuales_obj = db.get_etiquetas_de_caso(case_id)
+            etiquetas_actuales_nombres = [e['nombre_etiqueta'] for e in etiquetas_actuales_obj]
+            etiquetas_caso_var.set(", ".join(etiquetas_actuales_nombres))
         
-        inact_frame_dialog = ttk.LabelFrame(frame, text="Alarma Inactividad"); inact_frame_dialog.grid(row=9, column=0, columnspan=2, sticky=tk.EW, pady=10, padx=5)
+        row_idx = 0
+        ttk.Label(frame, text="Cliente:").grid(row=0, column=0, sticky=tk.W, pady=3, padx=5)
+        ttk.Label(frame, text=f"{client_context_name} (ID: {client_context_id})").grid(row=0, column=1, sticky=tk.W, pady=3, padx=5)
+        row_idx += 1
+        
+        ttk.Label(frame, text="*Carátula:").grid(row=1, column=0, sticky=tk.W, pady=3, padx=5)
+        caratula_entry = ttk.Entry(frame, textvariable=caratula_var); caratula_entry.grid(row=1, column=1, sticky=tk.EW, pady=3, padx=5)
+        row_idx += 1
+
+        # Nro Expediente y Año Carátula en la misma fila, usando un sub-frame para organizarlos
+        exp_anio_frame = ttk.Frame(frame)
+        exp_anio_frame.grid(row=row_idx, column=1, sticky=tk.EW, pady=0, padx=0) # Se alinea con la columna de valores
+        
+        ttk.Label(frame, text="Expediente:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5) # Etiqueta en la columna 0
+
+        ttk.Label(exp_anio_frame, text="Nro:").pack(side=tk.LEFT, padx=(0,2), pady=3)
+        ttk.Entry(exp_anio_frame, textvariable=num_exp_var, width=15).pack(side=tk.LEFT, padx=(0,10), pady=3)
+        ttk.Label(exp_anio_frame, text="Año:").pack(side=tk.LEFT, padx=(0,2), pady=3)
+        ttk.Entry(exp_anio_frame, textvariable=anio_car_var, width=8).pack(side=tk.LEFT, padx=(0,5), pady=3)
+        row_idx += 1
+
+        # Juzgado
+        ttk.Label(frame, text="Juzgado:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        ttk.Entry(frame, textvariable=juzgado_var).grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5)
+        row_idx += 1
+
+        # Jurisdicción
+        ttk.Label(frame, text="Jurisdicción:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        ttk.Entry(frame, textvariable=jurisdiccion_var).grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5)
+        row_idx += 1
+
+        # Etapa Procesal
+        ttk.Label(frame, text="Etapa Procesal:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        ttk.Entry(frame, textvariable=etapa_var).grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5)
+        row_idx += 1
+
+        # Etiquetas Caso
+        ttk.Label(frame, text="Etiquetas Caso:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        etiquetas_frame = ttk.Frame(frame) # Frame para el Entry y la ayuda
+        etiquetas_frame.grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5)
+        etiquetas_caso_entry = ttk.Entry(etiquetas_frame, textvariable=etiquetas_caso_var)
+        etiquetas_caso_entry.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        ttk.Label(etiquetas_frame, text="(separadas por coma)").pack(side=tk.LEFT, padx=(5,0))
+        row_idx += 1
+
+        # Notas del Caso
+        ttk.Label(frame, text="Notas del Caso:").grid(row=row_idx, column=0, sticky=tk.NW, pady=(5,2), padx=5)
+        notas_case_frame = ttk.Frame(frame)
+        notas_case_frame.grid(row=row_idx, column=1, sticky=tk.NSEW, pady=2, padx=5)
+        notas_case_frame.columnconfigure(0, weight=1); notas_case_frame.rowconfigure(0, weight=1)
+        case_notas_text_dialog = tk.Text(notas_case_frame, height=5, wrap=tk.WORD) # Altura aumentada
+        case_notas_text_dialog.grid(row=0, column=0, sticky='nsew')
+        case_notas_scroll_dialog = ttk.Scrollbar(notas_case_frame, orient=tk.VERTICAL, command=case_notas_text_dialog.yview)
+        case_notas_scroll_dialog.grid(row=0, column=1, sticky='ns')
+        case_notas_text_dialog['yscrollcommand'] = case_notas_scroll_dialog.set
+        case_notas_text_dialog.insert('1.0', notas_initial_case)
+        frame.rowconfigure(row_idx, weight=1) # Permitir que Notas se expanda verticalmente
+        row_idx += 1
+        
+        # Ruta Carpeta Docs
+        ttk.Label(frame, text="Ruta Carpeta Docs:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
+        ruta_frame_dialog = ttk.Frame(frame) # Frame para Entry y botón (futuro)
+        ruta_frame_dialog.grid(row=row_idx, column=1, sticky=tk.EW, pady=3, padx=5)
+        ruta_frame_dialog.columnconfigure(0, weight=1)
+        ruta_entry_dialog = ttk.Entry(ruta_frame_dialog, textvariable=ruta_var)
+        ruta_entry_dialog.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0,5))
+        # Aquí podrías añadir un botón "..." para seleccionar carpeta si lo deseas más adelante
+        # ttk.Button(ruta_frame_dialog, text="...", width=3).pack(side=tk.LEFT)
+        row_idx +=1
+
+        # Alarma Inactividad
+        inact_frame_dialog = ttk.LabelFrame(frame, text="Alarma Inactividad")
+        # Colocarlo en la columna 1 para que se alinee con los campos de entrada, o columnspan=2 si quieres que ocupe todo
+        inact_frame_dialog.grid(row=row_idx, column=0, columnspan=2, sticky=tk.EW, pady=10, padx=5)
         ttk.Checkbutton(inact_frame_dialog, text="Habilitada", variable=inact_enabled_var).pack(side=tk.LEFT, padx=5)
         ttk.Label(inact_frame_dialog, text="Umbral (días):").pack(side=tk.LEFT, padx=5)
         ttk.Spinbox(inact_frame_dialog, from_=1, to=365, width=5, textvariable=inact_days_var).pack(side=tk.LEFT, padx=5)
-        
-        button_frame_dialog = ttk.Frame(frame); button_frame_dialog.grid(row=10, column=0, columnspan=2, pady=15)
-        save_command = lambda: self.save_case(case_id, client_context_id, caratula_var.get(), num_exp_var.get(), anio_car_var.get(), juzgado_var.get(), jurisdiccion_var.get(), etapa_var.get(), case_notas_text_dialog.get("1.0", tk.END).strip(), ruta_var.get(), inact_days_var.get(), inact_enabled_var.get(), dialog)
+        row_idx += 1
+
+        # Botones Guardar/Cancelar
+        button_frame_dialog = ttk.Frame(frame)
+        button_frame_dialog.grid(row=row_idx, column=0, columnspan=2, pady=15, sticky=tk.E) # sticky=tk.E para alinear a la derecha
+
+        save_command = lambda: self.save_case(
+            case_id, client_context_id, 
+            caratula_var.get(), num_exp_var.get(), anio_car_var.get(), 
+            juzgado_var.get(), jurisdiccion_var.get(), etapa_var.get(), 
+            case_notas_text_dialog.get("1.0", tk.END).strip(), # Usar el nombre correcto del widget de notas
+            ruta_var.get(), 
+            inact_days_var.get(), inact_enabled_var.get(),
+            etiquetas_caso_var.get(), # <--- PASAR ETIQUETAS DEL CASO
+            dialog
+        )
+
         ttk.Button(button_frame_dialog, text="Guardar", command=save_command).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame_dialog, text="Cancelar", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
         
         caratula_entry.focus_set(); self.root.wait_window(dialog)
 
 
-    def save_case(self, case_id, cliente_id, caratula, num_exp, anio_car, juzgado, juris, etapa, notas, ruta, inact_days, inact_enabled, dialog):
+    def save_case(self, case_id, cliente_id, caratula, num_exp, anio_car, juzgado, juris, etapa, notas, ruta, inact_days, inact_enabled, etiquetas_caso_str, dialog):
         if not caratula.strip(): messagebox.showwarning("Advertencia", "La carátula del caso no puede estar vacía.", parent=dialog); return
-        success = False; msg_op = ""
+
+        success_main_data = False
+        saved_case_id = case_id # Usaremos este ID para las etiquetas
+
         if case_id is None: # Nuevo caso
             new_id = db.add_case(cliente_id, caratula.strip(), num_exp.strip(), anio_car.strip(), juzgado.strip(), juris.strip(), etapa.strip(), notas.strip(), ruta.strip(), inact_days, inact_enabled)
-            success = new_id is not None; msg_op = "agregado"
+            if new_id:
+                success_main_data = True
+                saved_case_id = new_id
+                msg_op = "agregado"
+            else:
+                msg_op = "falló al agregar"
         else: # Editar caso
-            success = db.update_case(case_id, caratula.strip(), num_exp.strip(), anio_car.strip(), juzgado.strip(), juris.strip(), etapa.strip(), notas.strip(), ruta.strip(), inact_days, inact_enabled)
-            msg_op = "actualizado"
-            if success and self.selected_case and self.selected_case['id'] == case_id:
-                self.selected_case = db.get_case_by_id(case_id) # Refrescar datos del caso seleccionado
-                self.display_case_details(self.selected_case)
-                self.load_case_documents(self.selected_case.get('ruta_carpeta', '')) # Recargar documentos si la ruta cambió
+            if db.update_case(case_id, caratula.strip(), num_exp.strip(), anio_car.strip(), juzgado.strip(), juris.strip(), etapa.strip(), notas.strip(), ruta.strip(), inact_days, inact_enabled):
+                success_main_data = True
+                msg_op = "actualizado"
+                # Actualizar datos del caso seleccionado si es el mismo
+                if self.selected_case and self.selected_case['id'] == case_id:
+                    self.selected_case = db.get_case_by_id(case_id) # Refrescar
+                    # self.display_case_details(self.selected_case) # Se llamará indirectamente al recargar lista
+                    # self.load_case_documents(...) # También se maneja al recargar
+            else:
+                msg_op = "falló al actualizar"
         
-        if success:
-            messagebox.showinfo("Éxito", f"Caso {msg_op} con éxito.", parent=self.root) # parent=self.root para que no quede detrás
+        if success_main_data:
+            # --- LÓGICA PARA GUARDAR ETIQUETAS DEL CASO ---
+            if saved_case_id is not None:
+                nombres_etiquetas_nuevas = [tag.strip().lower() for tag in etiquetas_caso_str.split(',') if tag.strip()]
+                
+                etiquetas_actuales_obj_db = db.get_etiquetas_de_caso(saved_case_id)
+                # nombres_etiquetas_actuales_db = {e['nombre_etiqueta'].lower() for e in etiquetas_actuales_obj_db} # No necesitamos nombres, sino IDs para comparar
+
+                ids_etiquetas_a_asignar = set()
+                for nombre_tag_nuevo in nombres_etiquetas_nuevas:
+                    tag_id = db.add_etiqueta(nombre_tag_nuevo) 
+                    if tag_id:
+                        ids_etiquetas_a_asignar.add(tag_id)
+                
+                etiquetas_ids_actuales_db = {e['id_etiqueta'] for e in etiquetas_actuales_obj_db}
+
+                for tag_id_to_assign in ids_etiquetas_a_asignar:
+                    db.asignar_etiqueta_a_caso(saved_case_id, tag_id_to_assign)
+
+                ids_etiquetas_a_quitar = etiquetas_ids_actuales_db - ids_etiquetas_a_asignar
+                for tag_id_to_remove in ids_etiquetas_a_quitar:
+                    db.quitar_etiqueta_de_caso(saved_case_id, tag_id_to_remove)
+            # --- FIN LÓGICA ETIQUETAS CASO ---
+
+            messagebox.showinfo("Éxito", f"Caso {msg_op} con éxito. Etiquetas actualizadas.", parent=self.root)
             dialog.destroy()
-            if self.selected_client: self.load_cases_by_client(self.selected_client['id']) # Refrescar lista de casos
-        else: messagebox.showerror("Error", f"No se pudo {msg_op} el caso.", parent=dialog)
+            if self.selected_client: # Recargar la lista de casos del cliente actual
+                self.load_cases_by_client(self.selected_client['id'])
+                # Si el caso guardado era el seleccionado, refrescar sus detalles (incluyendo etiquetas)
+                if self.selected_case and self.selected_case['id'] == saved_case_id:
+                    self.selected_case = db.get_case_by_id(saved_case_id) # Volver a cargar el caso con sus etiquetas
+                    self.display_case_details(self.selected_case) # Esto mostrará las nuevas etiquetas del caso
+        else:
+            messagebox.showerror("Error", f"No se pudo guardar la información principal del caso.", parent=dialog)
 
 
     def delete_case(self):
@@ -1367,7 +1727,7 @@ class CRMLegalApp:
         tipos_parte_comunes = ["", "Actor/a", "Demandado/a", "Tercero Interesado", "Testigo", "Perito", "Abogado Contraparte", "Abogado Propio (Referencia)", "Juez", "Secretario/a", "Mediador/a", "Síndico", "Asesor Técnico", "Otro"]
         direccion_initial = parte_data.get('direccion', '')
         contacto_var = tk.StringVar(value=parte_data.get('contacto', ''))
-        notas_initial = parte_data.get('notas', '')
+        notas_initial_case = parte_data.get('notas', '')
 
         row_idx = 0
         ttk.Label(frame, text="Caso:").grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=5)
@@ -1397,7 +1757,7 @@ class CRMLegalApp:
         notas_frame_dialog.rowconfigure(0, weight=1); notas_frame_dialog.columnconfigure(0, weight=1)
         notas_text_widget_dialog = tk.Text(notas_frame_dialog, height=5, width=40, wrap=tk.WORD); notas_text_widget_dialog.grid(row=0, column=0, sticky='nsew')
         notas_scroll_dialog = ttk.Scrollbar(notas_frame_dialog, orient=tk.VERTICAL, command=notas_text_widget_dialog.yview); notas_scroll_dialog.grid(row=0, column=1, sticky='ns')
-        notas_text_widget_dialog['yscrollcommand'] = notas_scroll_dialog.set; notas_text_widget_dialog.insert('1.0', notas_initial)
+        notas_text_widget_dialog['yscrollcommand'] = notas_scroll_dialog.set; notas_text_widget_dialog.insert('1.0', notas_initial_case)
         frame.rowconfigure(row_idx, weight=1); row_idx += 1 # Notas expandibles
 
         button_frame_dialog = ttk.Frame(frame); button_frame_dialog.grid(row=row_idx, column=0, columnspan=2, pady=15, sticky=tk.E)

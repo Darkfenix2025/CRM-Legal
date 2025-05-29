@@ -138,6 +138,42 @@ def create_tables():
                     otros_datos TEXT
                 );
             ''')
+
+            # En crm_database.py, dentro de la función create_tables()
+
+            # ... (después de CREATE TABLE IF NOT EXISTS datos_usuario (...) ...)
+
+            # --- NUEVAS TABLAS PARA ETIQUETAS ---
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS etiquetas (
+                    id_etiqueta INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre_etiqueta TEXT NOT NULL UNIQUE COLLATE NOCASE 
+                );
+            ''')
+            # COLLATE NOCASE en UNIQUE para que "Urgente" y "urgente" se consideren la misma etiqueta.
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS cliente_etiquetas (
+                    cliente_id INTEGER NOT NULL,
+                    etiqueta_id INTEGER NOT NULL,
+                    FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (etiqueta_id) REFERENCES etiquetas(id_etiqueta) ON DELETE CASCADE,
+                    PRIMARY KEY (cliente_id, etiqueta_id)
+                );
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS caso_etiquetas (
+                    caso_id INTEGER NOT NULL,
+                    etiqueta_id INTEGER NOT NULL,
+                    FOREIGN KEY (caso_id) REFERENCES casos(id) ON DELETE CASCADE,
+                    FOREIGN KEY (etiqueta_id) REFERENCES etiquetas(id_etiqueta) ON DELETE CASCADE,
+                    PRIMARY KEY (caso_id, etiqueta_id)
+                );
+            ''')
+            print("Tablas de etiquetas verificadas/creadas con éxito.")
+            # --- FIN NUEVAS TABLAS PARA ETIQUETAS ---
+
             # Opcional: Insertar una fila por defecto si la tabla está vacía la primera vez
             # Esto asegura que siempre haya una fila para actualizar, simplificando la lógica de guardado.
             cursor.execute('''
@@ -1107,6 +1143,234 @@ def delete_parte_interviniente(parte_id):
         finally:
             close_db(conn)
     return success
+
+# En crm_database.py (fuera de cualquier clase, como las otras funciones CRUD)
+
+# --- Funciones CRUD para Etiquetas ---
+
+def add_etiqueta(nombre_etiqueta):
+    """
+    Agrega una nueva etiqueta si no existe. Devuelve el ID de la etiqueta (nueva o existente).
+    El nombre de la etiqueta se guarda en minúsculas para consistencia, pero se compara sin importar mayúsculas/minúsculas.
+    """
+    conn = connect_db()
+    etiqueta_id = None
+    if not nombre_etiqueta or not nombre_etiqueta.strip():
+        print("Error: El nombre de la etiqueta no puede estar vacío.")
+        return None
+
+    # Normalizar el nombre de la etiqueta (ej. a minúsculas y sin espacios extra)
+    nombre_etiqueta_normalizado = nombre_etiqueta.strip().lower()
+
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # Primero, verificar si la etiqueta ya existe (ignorando mayúsculas/minúsculas)
+            cursor.execute("SELECT id_etiqueta FROM etiquetas WHERE nombre_etiqueta = ?", (nombre_etiqueta_normalizado,))
+            row = cursor.fetchone()
+            if row:
+                etiqueta_id = row['id_etiqueta']
+                print(f"Etiqueta '{nombre_etiqueta_normalizado}' ya existe con ID: {etiqueta_id}.")
+            else:
+                # Si no existe, insertarla
+                cursor.execute("INSERT INTO etiquetas (nombre_etiqueta) VALUES (?)", (nombre_etiqueta_normalizado,))
+                conn.commit()
+                etiqueta_id = cursor.lastrowid
+                print(f"Etiqueta '{nombre_etiqueta_normalizado}' agregada con ID: {etiqueta_id}.")
+        except sqlite3.IntegrityError: # Por si acaso, aunque el COLLATE NOCASE debería manejarlo en la búsqueda
+            print(f"Error de integridad al intentar agregar etiqueta '{nombre_etiqueta_normalizado}'. Podría ya existir con diferente capitalización si no se usa COLLATE NOCASE en la tabla.")
+            # Re-intentar obtenerla si falló la inserción por unicidad
+            cursor.execute("SELECT id_etiqueta FROM etiquetas WHERE nombre_etiqueta = ?", (nombre_etiqueta_normalizado,))
+            row = cursor.fetchone()
+            if row: etiqueta_id = row['id_etiqueta']
+        except sqlite3.Error as e:
+            print(f"Error al agregar o buscar etiqueta '{nombre_etiqueta_normalizado}': {e}")
+            if conn: conn.rollback()
+        finally:
+            close_db(conn)
+    return etiqueta_id
+
+def get_etiqueta_by_id(id_etiqueta):
+    conn = connect_db()
+    etiqueta = None
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id_etiqueta, nombre_etiqueta FROM etiquetas WHERE id_etiqueta = ?", (id_etiqueta,))
+            row = cursor.fetchone()
+            if row:
+                etiqueta = dict(row)
+        except sqlite3.Error as e:
+            print(f"Error al obtener etiqueta por ID {id_etiqueta}: {e}")
+        finally:
+            close_db(conn)
+    return etiqueta
+
+def get_todas_las_etiquetas():
+    """ Obtiene todas las etiquetas ordenadas alfabéticamente. """
+    conn = connect_db()
+    etiquetas = []
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id_etiqueta, nombre_etiqueta FROM etiquetas ORDER BY nombre_etiqueta ASC")
+            rows = cursor.fetchall()
+            etiquetas = [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error al obtener todas las etiquetas: {e}")
+        finally:
+            close_db(conn)
+    return etiquetas
+
+def delete_etiqueta(id_etiqueta):
+    """ Elimina una etiqueta y todas sus asociaciones. ¡Usar con cuidado! """
+    conn = connect_db()
+    success = False
+    if conn:
+        try:
+            cursor = conn.cursor()
+            # ON DELETE CASCADE en las tablas de unión se encargará de borrar las asociaciones.
+            cursor.execute("DELETE FROM etiquetas WHERE id_etiqueta = ?", (id_etiqueta,))
+            conn.commit()
+            if cursor.rowcount > 0:
+                print(f"Etiqueta ID {id_etiqueta} y sus asociaciones eliminadas.")
+                success = True
+            else:
+                print(f"No se encontró etiqueta con ID {id_etiqueta} para eliminar.")
+        except sqlite3.Error as e:
+            print(f"Error al eliminar etiqueta ID {id_etiqueta}: {e}")
+            if conn: conn.rollback()
+        finally:
+            close_db(conn)
+    return success
+
+# --- Funciones para Asignar/Quitar Etiquetas a Clientes ---
+
+def asignar_etiqueta_a_cliente(cliente_id, etiqueta_id):
+    conn = connect_db()
+    success = False
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO cliente_etiquetas (cliente_id, etiqueta_id) VALUES (?, ?)", (cliente_id, etiqueta_id))
+            conn.commit()
+            # rowcount podría ser 0 si la asignación ya existía (debido a INSERT OR IGNORE),
+            # lo cual consideramos un éxito en el sentido de que la asignación está presente.
+            success = True 
+            print(f"Etiqueta ID {etiqueta_id} asignada (o ya estaba asignada) a cliente ID {cliente_id}.")
+        except sqlite3.Error as e: # Podría ser un error de Foreign Key si cliente_id o etiqueta_id no existen
+            print(f"Error al asignar etiqueta ID {etiqueta_id} a cliente ID {cliente_id}: {e}")
+            if conn: conn.rollback()
+        finally:
+            close_db(conn)
+    return success
+
+def quitar_etiqueta_de_cliente(cliente_id, etiqueta_id):
+    conn = connect_db()
+    success = False
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM cliente_etiquetas WHERE cliente_id = ? AND etiqueta_id = ?", (cliente_id, etiqueta_id))
+            conn.commit()
+            if cursor.rowcount > 0:
+                print(f"Etiqueta ID {etiqueta_id} quitada del cliente ID {cliente_id}.")
+                success = True
+            else:
+                print(f"No se encontró la asignación de etiqueta ID {etiqueta_id} para cliente ID {cliente_id}.")
+                success = True # No es un error si no estaba asignada
+        except sqlite3.Error as e:
+            print(f"Error al quitar etiqueta ID {etiqueta_id} de cliente ID {cliente_id}: {e}")
+            if conn: conn.rollback()
+        finally:
+            close_db(conn)
+    return success
+
+def get_etiquetas_de_cliente(cliente_id):
+    """ Obtiene una lista de objetos etiqueta (dict) asignados a un cliente. """
+    conn = connect_db()
+    etiquetas_cliente = []
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT e.id_etiqueta, e.nombre_etiqueta 
+                FROM etiquetas e
+                JOIN cliente_etiquetas ce ON e.id_etiqueta = ce.etiqueta_id
+                WHERE ce.cliente_id = ?
+                ORDER BY e.nombre_etiqueta ASC
+            ''', (cliente_id,))
+            rows = cursor.fetchall()
+            etiquetas_cliente = [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error al obtener etiquetas para el cliente ID {cliente_id}: {e}")
+        finally:
+            close_db(conn)
+    return etiquetas_cliente
+
+# --- Funciones para Asignar/Quitar Etiquetas a Casos ---
+
+def asignar_etiqueta_a_caso(caso_id, etiqueta_id):
+    conn = connect_db()
+    success = False
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO caso_etiquetas (caso_id, etiqueta_id) VALUES (?, ?)", (caso_id, etiqueta_id))
+            conn.commit()
+            success = True
+            print(f"Etiqueta ID {etiqueta_id} asignada (o ya estaba asignada) a caso ID {caso_id}.")
+        except sqlite3.Error as e:
+            print(f"Error al asignar etiqueta ID {etiqueta_id} a caso ID {caso_id}: {e}")
+            if conn: conn.rollback()
+        finally:
+            close_db(conn)
+    return success
+
+def quitar_etiqueta_de_caso(caso_id, etiqueta_id):
+    conn = connect_db()
+    success = False
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM caso_etiquetas WHERE caso_id = ? AND etiqueta_id = ?", (caso_id, etiqueta_id))
+            conn.commit()
+            if cursor.rowcount > 0:
+                print(f"Etiqueta ID {etiqueta_id} quitada del caso ID {caso_id}.")
+                success = True
+            else:
+                print(f"No se encontró la asignación de etiqueta ID {etiqueta_id} para caso ID {caso_id}.")
+                success = True
+        except sqlite3.Error as e:
+            print(f"Error al quitar etiqueta ID {etiqueta_id} de caso ID {caso_id}: {e}")
+            if conn: conn.rollback()
+        finally:
+            close_db(conn)
+    return success
+
+def get_etiquetas_de_caso(caso_id):
+    """ Obtiene una lista de objetos etiqueta (dict) asignados a un caso. """
+    conn = connect_db()
+    etiquetas_caso = []
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT e.id_etiqueta, e.nombre_etiqueta 
+                FROM etiquetas e
+                JOIN caso_etiquetas ce ON e.id_etiqueta = ce.etiqueta_id
+                WHERE ce.caso_id = ?
+                ORDER BY e.nombre_etiqueta ASC
+            ''', (caso_id,))
+            rows = cursor.fetchall()
+            etiquetas_caso = [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error al obtener etiquetas para el caso ID {caso_id}: {e}")
+        finally:
+            close_db(conn)
+    return etiquetas_caso
+
+# --- Fin Funciones CRUD para Etiquetas ---
 
 # --- Inicializar la base de datos ---
 create_tables()
