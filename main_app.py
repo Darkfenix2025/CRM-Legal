@@ -7,6 +7,10 @@ import time
 import sys
 import subprocess
 import sqlite3 # Importar sqlite3 directamente para referenciar errores
+import requests
+import json
+from docx import Document # Necesitarás: pip install python-docx
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # --- Nuevos Imports para Agenda/Recordatorios/Bandeja ---
 from tkcalendar import Calendar, DateEntry
@@ -56,6 +60,10 @@ class CRMLegalApp:
         filemenu.add_separator()
         filemenu.add_command(label="Salir (Cerrar Aplicación)", command=self.cerrar_aplicacion_directamente)
         menubar.add_cascade(label="Archivo", menu=filemenu)
+        ia_menu = tk.Menu(menubar, tearoff=0)
+        ia_menu.add_command(label="Reformular Hechos Cliente...", command=self.open_reformular_hechos_dialog)
+        # ia_menu.add_command(label="Sugerir Próximo Paso (Caso)...", command=self.open_sugerencia_ia_caso_dialog) # Futuro
+        menubar.add_cascade(label="Asistente IA", menu=ia_menu)
 
 # --- INICIO DE LA MODIFICACIÓN: AÑADIR MENÚ ADMINISTRACIÓN ---
         adminmenu = tk.Menu(menubar, tearoff=0)  # 1. Creamos un nuevo objeto Menu, hijo de la barra principal 'menubar'
@@ -118,6 +126,208 @@ class CRMLegalApp:
 
         # --- Manejar cierre de ventana para ocultar a bandeja ---
         self.root.protocol("WM_DELETE_WINDOW", self.ocultar_a_bandeja)
+
+    # En main_app.py, dentro de la clase CRMLegalApp
+# Asegúrate de tener:
+# import requests # Necesitarás instalarlo: pip install requests
+# import json     # Estándar de Python
+
+    # ... (otros métodos) ...
+
+    # En main_app.py, dentro de la clase CRMLegalApp
+
+    def open_reformular_hechos_dialog(self):
+        # Determinar si hay un caso seleccionado para pre-llenar o asociar
+        caso_actual_id = self.selected_case['id'] if self.selected_case else None
+        caso_actual_caratula = self.selected_case.get('caratula', "General") if self.selected_case else "General"
+
+        dialog = Toplevel(self.root)
+        dialog.title(f"Reformular Hechos con IA (Caso: {caso_actual_caratula[:30]})")
+        dialog.transient(self.root); dialog.grab_set()
+        dialog.geometry("700x600") 
+        dialog.resizable(True, True)
+
+        main_frame = ttk.Frame(dialog, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame.columnconfigure(0, weight=1) # Única columna principal para los frames de texto y status
+        # main_frame.rowconfigure(0, weight=0) # Etiqueta de entrada (no necesita expandirse)
+        main_frame.rowconfigure(1, weight=2) # Para el input_text_frame
+        # main_frame.rowconfigure(2, weight=0) # Etiqueta de salida (no necesita expandirse)
+        main_frame.rowconfigure(3, weight=3) # Para el output_text_frame
+        # main_frame.rowconfigure(4, weight=0) # Status label
+        # main_frame.rowconfigure(5, weight=0) # Button frame
+
+        ttk.Label(main_frame, text="Ingrese los hechos del cliente (o texto a reformular):").grid(row=0, column=0, sticky=tk.NW, pady=(0,2))
+        
+        input_text_frame = ttk.Frame(main_frame)
+        input_text_frame.grid(row=1, column=0, sticky='nsew', pady=2)
+        input_text_frame.columnconfigure(0, weight=1); input_text_frame.rowconfigure(0, weight=1)
+        hechos_entrada_text = tk.Text(input_text_frame, wrap=tk.WORD, height=10)
+        hechos_entrada_text.grid(row=0, column=0, sticky='nsew')
+        hechos_entrada_scroll = ttk.Scrollbar(input_text_frame, command=hechos_entrada_text.yview)
+        hechos_entrada_scroll.grid(row=0, column=1, sticky='ns')
+        hechos_entrada_text['yscrollcommand'] = hechos_entrada_scroll.set
+
+        ttk.Label(main_frame, text="Hechos Reformulados por IA:").grid(row=2, column=0, sticky=tk.NW, pady=(5,2))
+        
+        output_text_frame = ttk.Frame(main_frame)
+        output_text_frame.grid(row=3, column=0, sticky='nsew', pady=2)
+        output_text_frame.columnconfigure(0, weight=1); output_text_frame.rowconfigure(0, weight=1)
+        resultado_ia_text = tk.Text(output_text_frame, wrap=tk.WORD, height=15, state=tk.DISABLED)
+        resultado_ia_text.grid(row=0, column=0, sticky='nsew')
+        resultado_ia_scroll = ttk.Scrollbar(output_text_frame, command=resultado_ia_text.yview)
+        resultado_ia_scroll.grid(row=0, column=1, sticky='ns')
+        resultado_ia_text['yscrollcommand'] = resultado_ia_scroll.set
+
+        status_var = tk.StringVar(value="Listo para recibir hechos.")
+        status_label = ttk.Label(main_frame, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W)
+        status_label.grid(row=4, column=0, sticky=tk.EW, pady=(5,5)) # Pady para separar de botones
+        
+        # --- AQUÍ DEBEN ESTAR LAS DEFINICIONES DE LAS FUNCIONES ---
+        def actualizar_ui_con_respuesta(resultado_json): # Movida antes de su uso
+            resultado_ia_text.config(state=tk.NORMAL)
+            resultado_ia_text.delete("1.0", tk.END)
+            if resultado_json and "hechos_reformulados" in resultado_json:
+                resultado_ia_text.insert("1.0", resultado_json["hechos_reformulados"])
+                status_var.set("Respuesta de IA recibida.")
+                copiar_btn.config(state=tk.NORMAL if resultado_ia_text.get("1.0", tk.END).strip() else tk.DISABLED)
+                guardar_docx_btn.config(state=tk.NORMAL if resultado_ia_text.get("1.0", tk.END).strip() else tk.DISABLED)
+            elif resultado_json and "error" in resultado_json:
+                error_msg_ia = f"Error devuelto por el Asistente IA: {resultado_json['error']}"
+                resultado_ia_text.insert("1.0", error_msg_ia)
+                status_var.set("Error en la IA.")
+                messagebox.showerror("Error de IA", error_msg_ia, parent=dialog)
+                copiar_btn.config(state=tk.DISABLED)
+                guardar_docx_btn.config(state=tk.DISABLED)
+            else:
+                resultado_ia_text.insert("1.0", "Respuesta inesperada o vacía del servidor.")
+                status_var.set("Error: Respuesta no reconocida.")
+                copiar_btn.config(state=tk.DISABLED)
+                guardar_docx_btn.config(state=tk.DISABLED)
+            resultado_ia_text.config(state=tk.DISABLED)
+
+        def actualizar_ui_con_error(mensaje_error, es_error_conexion=False): # Movida antes de su uso
+            resultado_ia_text.config(state=tk.NORMAL)
+            resultado_ia_text.delete("1.0", tk.END)
+            resultado_ia_text.insert("1.0", f"Error en la comunicación:\n{mensaje_error}")
+            resultado_ia_text.config(state=tk.DISABLED)
+            status_var.set("Error de comunicación.")
+            if not es_error_conexion: 
+                messagebox.showerror("Error de Comunicación con IA", mensaje_error, parent=dialog)
+            copiar_btn.config(state=tk.DISABLED)
+            guardar_docx_btn.config(state=tk.DISABLED)
+
+        def solicitar_reformulacion():
+            texto_hechos = hechos_entrada_text.get("1.0", tk.END).strip()
+            if not texto_hechos:
+                messagebox.showwarning("Entrada Vacía", "Por favor, ingrese el texto de los hechos a reformular.", parent=dialog)
+                return
+
+            status_var.set("Procesando con Asistente IA local, por favor espere...")
+            resultado_ia_text.config(state=tk.NORMAL); resultado_ia_text.delete("1.0", tk.END); resultado_ia_text.config(state=tk.DISABLED)
+            dialog.update_idletasks() 
+
+            def do_request_thread():
+                try:
+                    mcp_url = "http://localhost:5000/api/reformular_hechos"
+                    payload = {"texto_hechos": texto_hechos}
+                    response = requests.post(mcp_url, json=payload, timeout=90)
+                    response.raise_for_status()
+                    resultado_json = response.json()
+                    self.root.after(0, lambda: actualizar_ui_con_respuesta(resultado_json))
+                except requests.exceptions.ConnectionError:
+                    error_msg = (f"Error de Conexión: No se pudo conectar con el servidor del Asistente IA local en {mcp_url}.\n\n"
+                                 f"Verifique que:\n1. 'mcp_server.py' esté ejecutándose.\n"
+                                 f"2. Ollama/LM Studio esté activo y sirviendo el modelo correcto.\n"
+                                 f"3. No haya un firewall bloqueando la conexión a localhost en ese puerto.")
+                    self.root.after(0, lambda: actualizar_ui_con_error(error_msg, es_error_conexion=True))
+                except requests.exceptions.Timeout:
+                    error_msg = (f"Timeout: La solicitud al Asistente IA local en {mcp_url} tardó demasiado en responder (90s).\n\n"
+                                 f"Verifique el modelo LLM y la carga de su sistema.")
+                    self.root.after(0, lambda: actualizar_ui_con_error(error_msg))
+                except requests.exceptions.HTTPError as http_err:
+                    error_msg = f"Error HTTP {http_err.response.status_code} del servidor MCP: {http_err.response.text}"
+                    self.root.after(0, lambda: actualizar_ui_con_error(error_msg))
+                except requests.exceptions.JSONDecodeError:
+                    error_msg = "Error: El servidor MCP no devolvió una respuesta JSON válida."
+                    self.root.after(0, lambda: actualizar_ui_con_error(error_msg))
+                except Exception as e_thread: 
+                    error_msg = f"Error inesperado durante la solicitud a la IA: {type(e_thread).__name__}: {e_thread}"
+                    import traceback; traceback.print_exc()
+                    self.root.after(0, lambda: actualizar_ui_con_error(error_msg))
+            
+            threading.Thread(target=do_request_thread, daemon=True).start()
+
+        def copiar_resultado_ia():
+            texto_a_copiar = resultado_ia_text.get("1.0", tk.END).strip()
+            if texto_a_copiar:
+                self.root.clipboard_clear(); self.root.clipboard_append(texto_a_copiar)
+                status_var.set("¡Resultado copiado al portapapeles!")
+                # messagebox.showinfo("Copiado", "El resultado ha sido copiado.", parent=dialog) # Quizás mucho
+            else:
+                messagebox.showwarning("Nada que Copiar", "No hay resultado para copiar.", parent=dialog)
+
+        def guardar_resultado_como_docx():
+            texto_a_guardar = resultado_ia_text.get("1.0", tk.END).strip()
+            if not texto_a_guardar:
+                messagebox.showwarning("Nada que Guardar", "No hay resultado para guardar.", parent=dialog)
+                return
+            caso_actual_caratula_saneada = "Hechos_IA"
+            if self.selected_case and self.selected_case.get('caratula'):
+                nombre_base = re.sub(r'[^\w\s-]', '', self.selected_case.get('caratula', 'Caso'))
+                nombre_base = re.sub(r'\s+', '_', nombre_base).strip('_')
+                caso_actual_caratula_saneada = f"Hechos_IA_{nombre_base[:30]}"
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            suggested_filename = f"{caso_actual_caratula_saneada}_{timestamp}.docx"
+            filepath = filedialog.asksaveasfilename(title="Guardar Hechos como DOCX", initialfile=suggested_filename, defaultextension=".docx", filetypes=[("Documento Word", "*.docx")], parent=dialog)
+            if filepath:
+                try:
+                    from docx import Document
+                    from docx.enum.text import WD_ALIGN_PARAGRAPH
+                    doc = Document(); doc.add_paragraph(texto_a_guardar)
+                    doc.save(filepath)
+                    messagebox.showinfo("Documento Guardado", f"Documento guardado en:\n{filepath}", parent=dialog)
+                    status_var.set(f"Guardado como {os.path.basename(filepath)}")
+                    if messagebox.askyesno("Abrir Documento", "¿Desea abrir el documento ahora?", parent=dialog):
+                        if sys.platform == "win32": os.startfile(filepath)
+                        elif sys.platform == "darwin": subprocess.call(["open", filepath])
+                        else: subprocess.call(["xdg-open", filepath])
+                except ImportError:
+                    messagebox.showerror("Error Librería", "Falta 'python-docx'. Instálala con: pip install python-docx", parent=dialog)
+                except Exception as e_docx:
+                    messagebox.showerror("Error al Guardar DOCX", f"No se pudo guardar:\n{e_docx}", parent=dialog)
+        # --- FIN DEFINICIONES DE FUNCIONES ---
+
+        button_frame_dialog = ttk.Frame(main_frame)
+        button_frame_dialog.grid(row=5, column=0, pady=10, sticky=tk.EW) 
+
+        button_frame_dialog.columnconfigure(0, weight=1)
+        button_frame_dialog.columnconfigure(1, weight=1)
+        button_frame_dialog.columnconfigure(2, weight=1)
+        button_frame_dialog.columnconfigure(3, weight=1)
+        
+        reformular_btn = ttk.Button(button_frame_dialog, text="Reformular con IA", command=solicitar_reformulacion)
+        reformular_btn.grid(row=0, column=0, padx=2, pady=2, sticky=tk.EW)
+        
+        copiar_btn = ttk.Button(button_frame_dialog, text="Copiar Resultado", command=copiar_resultado_ia, state=tk.DISABLED)
+        copiar_btn.grid(row=0, column=1, padx=2, pady=2, sticky=tk.EW)
+        
+        guardar_docx_btn = ttk.Button(button_frame_dialog, text="Guardar como DOCX", command=guardar_resultado_como_docx, state=tk.DISABLED)
+        guardar_docx_btn.grid(row=0, column=2, padx=2, pady=2, sticky=tk.EW)
+        
+        cerrar_btn = ttk.Button(button_frame_dialog, text="Cerrar", command=dialog.destroy)
+        cerrar_btn.grid(row=0, column=3, padx=2, pady=2, sticky=tk.EW)
+
+        hechos_entrada_text.focus_set()
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+
+    # Necesitarás añadir un método para guardar la interacción si quieres ese botón
+    def _guardar_interaccion_ia_como_actividad(self, caso_id, tipo_consulta, consulta, respuesta_ia):
+        if not caso_id: return
+        descripcion_completa = f"CONSULTA A IA ({tipo_consulta}):\n{consulta}\n\nRESPUESTA IA:\n{respuesta_ia}"
+        # Llamar a tu función _save_new_actividad o db.add_actividad_caso
+        self._save_new_actividad(caso_id, f"Asistencia IA - {tipo_consulta}", descripcion_completa)
+        print(f"Interacción con IA guardada como actividad en caso ID {caso_id}")
 
     def crear_copia_de_seguridad(self):
         print("[Backup] Iniciando proceso de creación de copia de seguridad...") # Mensaje para tu consola
@@ -205,8 +415,8 @@ class CRMLegalApp:
     def create_widgets(self):
         crm_main_frame = ttk.Frame(self.root, padding="10")
         crm_main_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Configuración de columnas principales del CRM
+        
+                # Configuración de columnas principales del CRM
         crm_main_frame.rowconfigure(0, weight=1)
         crm_main_frame.columnconfigure(0, weight=0)  # Clientes (ancho fijo relativo)
         crm_main_frame.columnconfigure(1, weight=0)  # Casos/Calendario (ancho fijo relativo)

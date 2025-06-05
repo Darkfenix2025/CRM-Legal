@@ -22,7 +22,9 @@ develop-eggs/
 dist/
 dist_01/
 dist_02/
-dist_03/  # IMPORTANTE: No subir los ejecutables compilados directamente al repo
+dist_03/
+dist_04/
+dist_05/  # IMPORTANTE: No subir los ejecutables compilados directamente al repo
 downloads/
 eggs/
 .eggs/
