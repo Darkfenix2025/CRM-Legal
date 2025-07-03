@@ -647,6 +647,26 @@ def get_audiencias_con_recordatorio_activo():
             close_db(conn)
     return audiencias
 
+def get_cases_with_inactivity_alarm_enabled():
+    """ Obtiene todos los casos que tienen la alarma de inactividad habilitada. """
+    conn = connect_db()
+    cases = []
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, caratula, inactivity_threshold_days, last_activity_timestamp
+                FROM casos
+                WHERE inactivity_enabled = 1
+            ''')
+            rows = cursor.fetchall()
+            cases = [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error al obtener casos con alarma de inactividad habilitada: {e}")
+        finally:
+            close_db(conn)
+    return cases
+
 # --- Funciones de Interacción con Partes Intervinientes (Placeholder) ---
 # def add_parte(...): ...
 # def get_partes_by_case(...): ...

@@ -67,6 +67,7 @@ class CRMLegalApp:
         self.fecha_seleccionada_agenda = datetime.date.today().strftime("%Y-%m-%d") # Corregido formato
         self.audiencia_seleccionada_id = None
         self.recordatorios_mostrados_hoy = set()
+        self.alertas_inactividad_mostradas_hoy = set() # Nuevo para inactividad
         self.logo_image_tk = None
         self.tray_icon = None
         self.hilo_recordatorios = None
@@ -819,31 +820,147 @@ class CRMLegalApp:
             else: messagebox.showerror("Error", "No se pudo eliminar la audiencia.", parent=self.root)
 
     # --- Funciones de Recordatorios y Bandeja del Sistema ---
+    def mostrar_alerta_inactividad(self, caso):
+        if not caso: return
+        print(f"[Alerta Inactividad] Mostrando para Caso ID: {caso.get('id')}")
+
+        caratula_caso = caso.get('caratula', 'N/A')
+        umbral_dias = caso.get('inactivity_threshold_days', 'N/A')
+
+        titulo = f"Alarma de Inactividad CRM Legal"
+        mensaje = f"El caso '{caratula_caso}' (ID: {caso.get('id')}) ha superado el umbral de {umbral_dias} días de inactividad."
+        app_nombre = "CRM Legal"
+        icon_path_notif = ""
+        try:
+            icon_notif_file = "icono.ico" # Asegúrate que este archivo exista en assets
+            icon_path_notif = resource_path(f'assets/{icon_notif_file}')
+            if not os.path.exists(icon_path_notif):
+                print(f"Advertencia: Icono de notificación (.ico) no encontrado en {icon_path_notif} para alerta inactividad")
+                icon_path_notif = ""
+        except Exception as e:
+            print(f"Error al obtener ruta del icono de notificación (.ico) para alerta inactividad: {e}")
+            icon_path_notif = ""
+
+        try:
+            print(f"[Alerta Inactividad] Enviando: T='{titulo}', M='{mensaje}', Icono='{icon_path_notif}'")
+            plyer.notification.notify(
+                title=titulo,
+                message=mensaje,
+                app_name=app_nombre,
+                app_icon=icon_path_notif,
+                timeout=20 # Duración de la notificación en segundos
+            )
+            print("[Alerta Inactividad] Plyer notify() llamado.")
+        except NotImplementedError:
+            print("[Alerta Inactividad] Plataforma no soportada por Plyer o backend no instalado. Usando fallback messagebox.")
+            self.root.after(0, messagebox.showwarning, titulo, mensaje, {'parent': self.root})
+        except Exception as e:
+            print(f"[Alerta Inactividad] Error al enviar notificación nativa vía Plyer: {e}. Usando fallback.")
+            self.root.after(0, messagebox.showwarning, titulo, mensaje, {'parent': self.root})
+
+
     def verificar_recordatorios_periodicamente(self):
-        print("[Recordatorios] Hilo iniciado.")
+        print("[Recordatorios/Alertas] Hilo iniciado.")
         last_check_time = time.monotonic()
+
+        # Para asegurar que _dia_verificacion_recordatorios y _dia_verificacion_inactividad
+        # se inicialicen en la primera ejecución si no existen.
+        if not hasattr(self, '_dia_verificacion_recordatorios'):
+            self._dia_verificacion_recordatorios = ""
+        if not hasattr(self, '_dia_verificacion_inactividad'):
+            self._dia_verificacion_inactividad = ""
+
         while not self.stop_event.is_set():
+            ahora = datetime.datetime.now()
+            hoy_str = ahora.strftime("%Y-%m-%d")
+
+            # --- Lógica de Recordatorios de Audiencia (sin cambios significativos) ---
+            if self._dia_verificacion_recordatorios != hoy_str:
+                print(f"[Recordatorios Audiencia] Nuevo día ({hoy_str}), reseteando mostrados.")
+                self.recordatorios_mostrados_hoy = set()
+                self._dia_verificacion_recordatorios = hoy_str
+
             try:
-                ahora = datetime.datetime.now(); hoy_str = ahora.strftime("%Y-%m-%d")
-                if not hasattr(self, '_dia_verificacion_recordatorios') or self._dia_verificacion_recordatorios != hoy_str:
-                    print(f"[Recordatorios] Nuevo día ({hoy_str}), reseteando mostrados."); self.recordatorios_mostrados_hoy = set(); self._dia_verificacion_recordatorios = hoy_str
                 audiencias_a_revisar = db.get_audiencias_con_recordatorio_activo()
                 for aud in audiencias_a_revisar:
                     if self.stop_event.is_set(): break
                     aud_id = aud['id']
-                    if not aud.get('hora') or aud_id in self.recordatorios_mostrados_hoy: continue
+                    if not aud.get('hora') or aud_id in self.recordatorios_mostrados_hoy:
+                        continue
                     try:
-                        tiempo_audiencia = datetime.datetime.strptime(f"{aud['fecha']} {aud['hora']}", "%Y-%m-%d %H:%M"); minutos_antes = aud.get('recordatorio_minutos', 15)
+                        tiempo_audiencia = datetime.datetime.strptime(f"{aud['fecha']} {aud['hora']}", "%Y-%m-%d %H:%M")
+                        minutos_antes = aud.get('recordatorio_minutos', 15)
                         tiempo_recordatorio = tiempo_audiencia - datetime.timedelta(minutes=minutos_antes)
+
                         if tiempo_recordatorio <= ahora < tiempo_audiencia:
-                            print(f"[Recordatorios] ¡Alerta! Audiencia ID: {aud_id} ({aud['hora']}) en {aud['fecha']}. Notificando...")
-                            self.root.after(0, self.mostrar_recordatorio, aud); self.recordatorios_mostrados_hoy.add(aud_id)
-                    except ValueError as ve: print(f"[Recordatorios] Error parseando fecha/hora para ID {aud_id}: {ve}")
-                    except Exception as e: print(f"[Recordatorios] Error procesando recordatorio para ID {aud_id}: {e}")
-            except sqlite3.Error as dbe: print(f"[Recordatorios] Error de base de datos en hilo: {dbe}"); self.stop_event.wait(300); continue
-            except Exception as ex: print(f"[Recordatorios] Error inesperado en bucle principal del hilo: {ex}"); self.stop_event.wait(120); continue
-            wait_time = 60.0 - (time.monotonic() - last_check_time); self.stop_event.wait(max(1.0, wait_time)); last_check_time = time.monotonic()
-        print("[Recordatorios] Hilo detenido.")
+                            print(f"[Recordatorios Audiencia] ¡Alerta! Audiencia ID: {aud_id} ({aud['hora']}) en {aud['fecha']}. Notificando...")
+                            self.root.after(0, self.mostrar_recordatorio, aud)
+                            self.recordatorios_mostrados_hoy.add(aud_id)
+                    except ValueError as ve:
+                        print(f"[Recordatorios Audiencia] Error parseando fecha/hora para ID {aud_id}: {ve}")
+                    except Exception as e:
+                        print(f"[Recordatorios Audiencia] Error procesando recordatorio para ID {aud_id}: {e}")
+            except sqlite3.Error as dbe:
+                print(f"[Recordatorios Audiencia] Error de base de datos en hilo: {dbe}")
+                # Considerar si continuar o esperar más tiempo en caso de error de BD
+            except Exception as ex:
+                print(f"[Recordatorios Audiencia] Error inesperado en bucle de audiencias: {ex}")
+
+            # --- Lógica de Alertas de Inactividad de Casos ---
+            if self._dia_verificacion_inactividad != hoy_str: # También resetear diariamente
+                print(f"[Alertas Inactividad] Nuevo día ({hoy_str}), reseteando mostradas.")
+                self.alertas_inactividad_mostradas_hoy = set()
+                self._dia_verificacion_inactividad = hoy_str
+
+            try:
+                casos_a_revisar_inactividad = db.get_cases_with_inactivity_alarm_enabled()
+                for caso in casos_a_revisar_inactividad:
+                    if self.stop_event.is_set(): break
+                    caso_id = caso['id']
+                    if caso_id in self.alertas_inactividad_mostradas_hoy:
+                        continue
+
+                    last_activity_ts = caso.get('last_activity_timestamp')
+                    threshold_days = caso.get('inactivity_threshold_days', 30)
+
+                    if last_activity_ts is None: # Si nunca hubo actividad, considerar la fecha de creación
+                        # Esto requeriría añadir 'created_at' a la consulta en get_cases_with_inactivity_alarm_enabled()
+                        # y manejarlo. Por simplicidad, si no hay last_activity_timestamp, lo ignoramos o
+                        # asumimos que la actividad es la fecha de creación.
+                        # Para este ejemplo, lo saltaremos si no hay timestamp.
+                        # O podríamos usar 'created_at' si está disponible.
+                        # print(f"[Alertas Inactividad] Caso ID {caso_id} no tiene last_activity_timestamp, omitiendo.")
+                        # Alternativamente, podrías querer alertar si es muy antiguo y no tiene actividad.
+                        # Para este ejemplo, vamos a asumir que 'last_activity_timestamp' siempre debería existir
+                        # después de la creación del caso (ya que se setea en add_case).
+                        # Si aun así es None, es un estado anómalo o un caso muy viejo sin esta lógica.
+                        # Lo mejor es asegurar que 'last_activity_timestamp' se setee al crear el caso.
+                        # La función add_case ya lo hace: last_activity_timestamp = timestamp
+                        pass # O manejar según la lógica deseada
+
+
+                    if last_activity_ts: # Solo proceder si hay un timestamp de última actividad
+                        fecha_ultima_actividad = datetime.datetime.fromtimestamp(last_activity_ts)
+                        dias_inactivo = (ahora - fecha_ultima_actividad).days
+
+                        if dias_inactivo >= threshold_days:
+                            print(f"[Alertas Inactividad] ¡Alerta! Caso ID: {caso_id} ('{caso.get('caratula')}') inactivo por {dias_inactivo} días (umbral: {threshold_days}). Notificando...")
+                            self.root.after(0, self.mostrar_alerta_inactividad, caso)
+                            self.alertas_inactividad_mostradas_hoy.add(caso_id)
+
+            except sqlite3.Error as dbe:
+                print(f"[Alertas Inactividad] Error de base de datos en hilo: {dbe}")
+            except Exception as ex:
+                print(f"[Alertas Inactividad] Error inesperado en bucle de inactividad de casos: {ex}")
+
+            # --- Espera ---
+            # Calcular el tiempo de espera para el próximo ciclo (ej. cada minuto)
+            current_monotonic = time.monotonic()
+            wait_time = 60.0 - (current_monotonic - last_check_time) # Apunta a un ciclo de 60s
+            self.stop_event.wait(max(1.0, wait_time)) # Espera como mínimo 1 segundo
+            last_check_time = time.monotonic() # Actualizar para el próximo cálculo de wait_time
+
+        print("[Recordatorios/Alertas] Hilo detenido.")
 
     def mostrar_recordatorio(self, audiencia):
         if not audiencia: return
