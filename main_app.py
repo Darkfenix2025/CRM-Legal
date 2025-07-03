@@ -32,6 +32,238 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 # --- Fin Helper ---
 
+# Nueva clase para la ventana de detalles del caso
+class CaseDetailWindow(tk.Toplevel):
+    def __init__(self, master, app_controller):
+        super().__init__(master)
+        self.transient(master)
+        self.app_controller = app_controller # Para acceder a db, selected_case, etc.
+        self.db_crm = self.app_controller.db_crm # Acceso directo al módulo de BD
+
+        self.title("Detalles del Caso")
+        # Podrías ajustar el tamaño según el contenido o hacerlo resizable
+        self.geometry("700x500")
+        self.protocol("WM_DELETE_WINDOW", self.withdraw) # Ocultar en lugar de destruir
+
+        # Referencias a widgets internos, similar a como estaban en CRMLegalApp
+        self.caratula_lbl = None
+        self.expediente_lbl = None
+        self.juzgado_lbl = None
+        self.jurisdiccion_lbl = None
+        self.etapa_lbl = None
+        self.notas_text = None
+        self.inactivity_enabled_lbl = None
+        self.inactivity_threshold_lbl = None
+
+        self.folder_path_lbl = None
+        self.select_folder_btn = None
+        self.open_folder_btn = None
+        self.document_tree = None
+
+        # Pestaña de seguimiento
+        self.seguimiento_tab_frame_ext = None # Renombrado para evitar conflicto si CRMLegalApp aún lo tiene
+
+        self._create_notebook_widgets()
+
+    def _create_notebook_widgets(self):
+        # Frame principal para el notebook dentro del Toplevel
+        notebook_container_frame = ttk.Frame(self, padding="5")
+        notebook_container_frame.pack(fill=tk.BOTH, expand=True)
+        notebook_container_frame.rowconfigure(0, weight=1)
+        notebook_container_frame.columnconfigure(0, weight=1)
+
+        self.main_notebook_ext = ttk.Notebook(notebook_container_frame) # Renombrado
+        self.main_notebook_ext.grid(row=0, column=0, sticky='nsew')
+
+        # Pestaña Detalles del Caso
+        self.case_details_tab_ext = ttk.Frame(self.main_notebook_ext, padding="10")
+        self.main_notebook_ext.add(self.case_details_tab_ext, text='Detalles del Caso')
+        self.case_details_tab_ext.columnconfigure(1, weight=1)
+        self.case_details_tab_ext.rowconfigure(5, weight=1) # Para que el Text de notas se expanda
+
+        ttk.Label(self.case_details_tab_ext, text="Carátula:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.caratula_lbl = ttk.Label(self.case_details_tab_ext, text="", wraplength=450);
+        self.caratula_lbl.grid(row=0, column=1, sticky=tk.EW, pady=2)
+
+        ttk.Label(self.case_details_tab_ext, text="Expediente:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        self.expediente_lbl = ttk.Label(self.case_details_tab_ext, text="")
+        self.expediente_lbl.grid(row=1, column=1, sticky=tk.EW, pady=2)
+
+        ttk.Label(self.case_details_tab_ext, text="Juzgado:").grid(row=2, column=0, sticky=tk.W, pady=2)
+        self.juzgado_lbl = ttk.Label(self.case_details_tab_ext, text="", wraplength=450)
+        self.juzgado_lbl.grid(row=2, column=1, sticky=tk.EW, pady=2)
+
+        ttk.Label(self.case_details_tab_ext, text="Jurisdicción:").grid(row=3, column=0, sticky=tk.W, pady=2)
+        self.jurisdiccion_lbl = ttk.Label(self.case_details_tab_ext, text="", wraplength=450)
+        self.jurisdiccion_lbl.grid(row=3, column=1, sticky=tk.EW, pady=2)
+
+        ttk.Label(self.case_details_tab_ext, text="Etapa Procesal:").grid(row=4, column=0, sticky=tk.W, pady=2)
+        self.etapa_lbl = ttk.Label(self.case_details_tab_ext, text="", wraplength=450)
+        self.etapa_lbl.grid(row=4, column=1, sticky=tk.EW, pady=2)
+
+        ttk.Label(self.case_details_tab_ext, text="Notas:").grid(row=5, column=0, sticky=tk.NW, pady=2)
+        self.notas_text = tk.Text(self.case_details_tab_ext, height=4, wrap=tk.WORD, state=tk.DISABLED)
+        self.notas_text.grid(row=5, column=1, sticky=tk.NSEW, pady=2)
+        notas_scrollbar = ttk.Scrollbar(self.case_details_tab_ext, orient=tk.VERTICAL, command=self.notas_text.yview)
+        notas_scrollbar.grid(row=5, column=2, sticky=tk.NS, pady=2)
+        self.notas_text['yscrollcommand'] = notas_scrollbar.set
+
+        inactivity_frame = ttk.LabelFrame(self.case_details_tab_ext, text="Alarma Inactividad", padding="5")
+        inactivity_frame.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=5)
+        inactivity_frame.columnconfigure(1, weight=1)
+        ttk.Label(inactivity_frame, text="Habilitada:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=1)
+        self.inactivity_enabled_lbl = ttk.Label(inactivity_frame, text="")
+        self.inactivity_enabled_lbl.grid(row=0, column=1, sticky=tk.W, pady=1)
+        ttk.Label(inactivity_frame, text="Umbral Días:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=1)
+        self.inactivity_threshold_lbl = ttk.Label(inactivity_frame, text="")
+        self.inactivity_threshold_lbl.grid(row=1, column=1, sticky=tk.W, pady=1)
+
+        # Pestaña Documentación
+        self.documents_tab_ext = ttk.Frame(self.main_notebook_ext, padding="10")
+        self.main_notebook_ext.add(self.documents_tab_ext, text='Documentación')
+        self.documents_tab_ext.columnconfigure(0, weight=1)
+        self.documents_tab_ext.rowconfigure(3, weight=1) # Para que el treeview de documentos se expanda
+
+        ttk.Label(self.documents_tab_ext, text="Carpeta Documentos:").grid(row=0, column=0, pady=(0, 5), sticky=tk.W)
+        folder_frame = ttk.Frame(self.documents_tab_ext)
+        folder_frame.grid(row=1, column=0, sticky=tk.EW, pady=(0, 5))
+        folder_frame.columnconfigure(0, weight=1)
+        self.folder_path_lbl = ttk.Label(folder_frame, text="Selecciona un caso", relief=tk.SUNKEN, anchor=tk.W, wraplength=400)
+        self.folder_path_lbl.grid(row=0, column=0, sticky=tk.EW, padx=(0, 5))
+
+        # Los comandos de estos botones llamarán a métodos en app_controller
+        self.select_folder_btn = ttk.Button(folder_frame, text="...",
+                                             command=lambda: self.app_controller.select_case_folder(self), # Pasa self (CaseDetailWindow)
+                                             state=tk.DISABLED, width=3)
+        self.select_folder_btn.grid(row=0, column=1, sticky=tk.E, padx=(0,5))
+        self.open_folder_btn = ttk.Button(folder_frame, text="Abrir",
+                                           command=lambda: self.app_controller.open_case_folder(self), # Pasa self
+                                           state=tk.DISABLED, width=5)
+        self.open_folder_btn.grid(row=0, column=2, sticky=tk.E)
+
+        ttk.Label(self.documents_tab_ext, text="Archivos:").grid(row=2, column=0, pady=(0, 5), sticky=tk.NW)
+        documents_tree_frame = ttk.Frame(self.documents_tab_ext)
+        documents_tree_frame.grid(row=3, column=0, sticky='nsew')
+        documents_tree_frame.columnconfigure(0, weight=1)
+        documents_tree_frame.rowconfigure(0, weight=1)
+        self.document_tree = ttk.Treeview(documents_tree_frame, columns=('Nombre', 'Tamaño', 'Fecha Mod.'), show='headings')
+        self.document_tree.heading('Nombre', text='Nombre')
+        self.document_tree.heading('Tamaño', text='Tamaño')
+        self.document_tree.heading('Fecha Mod.', text='Modificado')
+        self.document_tree.column('Tamaño', width=80, stretch=tk.NO, anchor=tk.E)
+        self.document_tree.column('Fecha Mod.', width=120, stretch=tk.NO)
+        document_scrollbar = ttk.Scrollbar(documents_tree_frame, orient=tk.VERTICAL, command=self.document_tree.yview)
+        self.document_tree.configure(yscrollcommand=document_scrollbar.set)
+        document_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.document_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Pestaña Partes
+        self.partes_tab_ext = ttk.Frame(self.main_notebook_ext, padding="10")
+        self.main_notebook_ext.add(self.partes_tab_ext, text='Partes')
+        ttk.Label(self.partes_tab_ext, text="Gestión de Partes Intervinientes (Próximamente).").pack()
+
+        # Pestaña de Seguimiento
+        # SeguimientoTab necesita una referencia a app_controller para la lógica de BD y diálogos.
+        # Y app_controller necesita una referencia a SeguimientoTab para cargar datos.
+        # Aquí, SeguimientoTab se crea dentro de CaseDetailWindow.
+        self.seguimiento_tab_frame_ext = SeguimientoTab(self.main_notebook_ext, self.app_controller)
+        self.main_notebook_ext.add(self.seguimiento_tab_frame_ext, text="Seguimiento")
+
+        # Estado inicial de las pestañas (deshabilitadas hasta que se seleccione un caso)
+        self.disable_all_tabs()
+
+    def update_details(self, case_data):
+        if case_data:
+            self.title(f"Detalles del Caso: {case_data.get('caratula', 'N/A')[:50]}")
+            # Pestaña Detalles
+            self.caratula_lbl.config(text=case_data.get('caratula', 'N/A'))
+            exp = f"{case_data.get('numero_expediente', 'S/N')}/{case_data.get('anio_caratula', 'S/A')}"
+            self.expediente_lbl.config(text=exp)
+            self.juzgado_lbl.config(text=case_data.get('juzgado', 'N/A'))
+            self.jurisdiccion_lbl.config(text=case_data.get('jurisdiccion', 'N/A'))
+            self.etapa_lbl.config(text=case_data.get('etapa_procesal', 'N/A'))
+            self.notas_text.config(state=tk.NORMAL)
+            self.notas_text.delete('1.0', tk.END)
+            self.notas_text.insert('1.0', case_data.get('notas', ''))
+            self.notas_text.config(state=tk.DISABLED)
+            inactivity_enabled = "Sí" if case_data.get('inactivity_enabled') else "No"
+            inactivity_threshold = case_data.get('inactivity_threshold_days', 30)
+            self.inactivity_enabled_lbl.config(text=inactivity_enabled)
+            self.inactivity_threshold_lbl.config(text=str(inactivity_threshold))
+
+            # Pestaña Documentación
+            folder_path = case_data.get('ruta_carpeta', '')
+            self.folder_path_lbl.config(text=folder_path if folder_path else "Carpeta no asignada")
+            self.select_folder_btn.config(state=tk.NORMAL) # Siempre habilitado si hay caso
+            self.open_folder_btn.config(state=tk.NORMAL if folder_path and os.path.exists(folder_path) else tk.DISABLED)
+            self.app_controller.load_case_documents(folder_path, target_tree=self.document_tree) # Pasa el treeview de esta ventana
+
+            # Pestaña Seguimiento
+            if hasattr(self.seguimiento_tab_frame_ext, 'load_actividades'):
+                 self.seguimiento_tab_frame_ext.load_actividades(case_data['id'])
+                 self.seguimiento_tab_frame_ext.set_add_button_state(tk.NORMAL)
+
+
+            self.enable_all_tabs()
+            self.main_notebook_ext.select(self.case_details_tab_ext) # Seleccionar primera pestaña
+        else:
+            self.clear_all_details() # Si no hay case_data, limpiar todo
+            self.disable_all_tabs()
+            self.title("Detalles del Caso")
+
+
+    def clear_all_details(self):
+        self.title("Detalles del Caso")
+        # Pestaña Detalles
+        self.caratula_lbl.config(text="")
+        self.expediente_lbl.config(text="")
+        self.juzgado_lbl.config(text="")
+        self.jurisdiccion_lbl.config(text="")
+        self.etapa_lbl.config(text="")
+        self.notas_text.config(state=tk.NORMAL); self.notas_text.delete('1.0', tk.END); self.notas_text.config(state=tk.DISABLED)
+        self.inactivity_enabled_lbl.config(text="")
+        self.inactivity_threshold_lbl.config(text="")
+
+        # Pestaña Documentación
+        self.folder_path_lbl.config(text="Selecciona un caso para ver/asignar carpeta")
+        self.select_folder_btn.config(state=tk.DISABLED)
+        self.open_folder_btn.config(state=tk.DISABLED)
+        for i in self.document_tree.get_children(): self.document_tree.delete(i)
+
+        # Pestaña Seguimiento
+        if hasattr(self.seguimiento_tab_frame_ext, 'load_actividades'):
+            self.seguimiento_tab_frame_ext.load_actividades(None)
+            # El botón de agregar en SeguimientoTab se deshabilita por load_actividades(None)
+
+        self.disable_all_tabs()
+
+    def enable_all_tabs(self):
+        self.main_notebook_ext.tab(self.case_details_tab_ext, state='normal')
+        self.main_notebook_ext.tab(self.documents_tab_ext, state='normal')
+        self.main_notebook_ext.tab(self.partes_tab_ext, state='normal') # Aunque sea placeholder
+        if hasattr(self.seguimiento_tab_frame_ext, 'load_actividades'): # Asegurar que existe
+            self.main_notebook_ext.tab(self.seguimiento_tab_frame_ext, state='normal')
+
+    def disable_all_tabs(self):
+        self.main_notebook_ext.tab(self.case_details_tab_ext, state='disabled')
+        self.main_notebook_ext.tab(self.documents_tab_ext, state='disabled')
+        self.main_notebook_ext.tab(self.partes_tab_ext, state='disabled')
+        if hasattr(self.seguimiento_tab_frame_ext, 'load_actividades'):
+            self.main_notebook_ext.tab(self.seguimiento_tab_frame_ext, state='disabled')
+
+    def show(self):
+        self.deiconify()
+        self.lift()
+        self.focus_set()
+
+    # Se podría añadir un método para actualizar específicamente la lista de documentos
+    # si `select_case_folder` o `open_case_folder` necesitan actualizar solo esa parte.
+    def update_document_list(self, folder_path):
+        self.app_controller.load_case_documents(folder_path, target_tree=self.document_tree)
+        # Actualizar estado del botón "Abrir Carpeta"
+        self.open_folder_btn.config(state=tk.NORMAL if folder_path and os.path.exists(folder_path) else tk.DISABLED)
+        self.folder_path_lbl.config(text=folder_path if folder_path else "Carpeta no asignada")
+
 
 # Clase principal de la aplicación
 class CRMLegalApp:
@@ -59,6 +291,7 @@ class CRMLegalApp:
         # Variables de estado CRM
         self.selected_client = None
         self.selected_case = None
+        self.case_detail_window = None # Instancia de la ventana Toplevel de detalles
 
         # --- Referencia al módulo de base de datos para SeguimientoTab y otros usos ---
         self.db_crm = db
@@ -118,9 +351,9 @@ class CRMLegalApp:
         crm_main_frame.pack(fill=tk.BOTH, expand=True)
 
         crm_main_frame.rowconfigure(0, weight=1)
-        crm_main_frame.columnconfigure(0, weight=0)
-        crm_main_frame.columnconfigure(1, weight=0)
-        crm_main_frame.columnconfigure(2, weight=2)
+        crm_main_frame.columnconfigure(0, weight=0)  # Columna 0: Clientes
+        crm_main_frame.columnconfigure(1, weight=1)  # Columna 1: Casos, Calendario, Audiencias (Expandida)
+        # Columna 2 eliminada
 
         # --- Columna 1: Clientes ---
         col1_frame = ttk.Frame(crm_main_frame)
@@ -151,9 +384,13 @@ class CRMLegalApp:
         ttk.Label(client_details_frame, text="Email:").grid(row=2, column=0, sticky=tk.W, pady=1, padx=5); self.client_detail_email_lbl = ttk.Label(client_details_frame, text="", wraplength=200); self.client_detail_email_lbl.grid(row=2, column=1, sticky=tk.EW, pady=1, padx=5)
         ttk.Label(client_details_frame, text="WhatsApp:").grid(row=3, column=0, sticky=tk.W, pady=1, padx=5); self.client_detail_whatsapp_lbl = ttk.Label(client_details_frame, text="", wraplength=200); self.client_detail_whatsapp_lbl.grid(row=3, column=1, sticky=tk.EW, pady=1, padx=5)
 
-        # --- Columna 2: Casos / Calendario ---
+        # --- Columna 2: Casos / Calendario / Audiencias del Día ---
         col2_frame = ttk.Frame(crm_main_frame); col2_frame.grid(row=0, column=1, sticky='nsew', padx=5, pady=5)
-        col2_frame.rowconfigure(0, weight=1); col2_frame.rowconfigure(1, weight=0); col2_frame.rowconfigure(2, weight=1); col2_frame.rowconfigure(3, weight=0)
+        col2_frame.rowconfigure(0, weight=2) # Casos (más peso para expandir verticalmente)
+        col2_frame.rowconfigure(1, weight=0) # Botones de caso
+        col2_frame.rowconfigure(2, weight=1) # Calendario
+        col2_frame.rowconfigure(3, weight=0) # Botón agregar audiencia
+        col2_frame.rowconfigure(4, weight=1) # Área de audiencias del día (movida aquí)
         col2_frame.columnconfigure(0, weight=1)
 
         case_list_frame = ttk.LabelFrame(col2_frame, text="Casos Cliente", padding="5"); case_list_frame.grid(row=0, column=0, sticky='nsew', pady=(0, 5))
@@ -184,52 +421,12 @@ class CRMLegalApp:
         self.add_audiencia_btn.pack(fill=tk.X, padx=10, pady=5)
         self.update_add_audiencia_button_state() # Estado inicial correcto
 
-        # --- Columna 3: Detalles / Audiencias ---
-        col3_frame = ttk.Frame(crm_main_frame); col3_frame.grid(row=0, column=2, sticky='nsew', padx=(5, 0), pady=5)
-        col3_frame.rowconfigure(0, weight=3); col3_frame.rowconfigure(1, weight=1); col3_frame.rowconfigure(2, weight=0); col3_frame.rowconfigure(3, weight=1) # Pesos originales
-        col3_frame.columnconfigure(0, weight=1)
-
-        right_notebook_frame = ttk.Frame(col3_frame); right_notebook_frame.grid(row=0, column=0, sticky='nsew', pady=(0, 5))
-        right_notebook_frame.rowconfigure(0, weight=1); right_notebook_frame.columnconfigure(0, weight=1)
-        self.main_notebook = ttk.Notebook(right_notebook_frame); self.main_notebook.grid(row=0, column=0, sticky='nsew')
-
-        self.case_details_tab = ttk.Frame(self.main_notebook, padding="10"); self.main_notebook.add(self.case_details_tab, text='Detalles del Caso')
-        self.case_details_tab.columnconfigure(1, weight=1); self.case_details_tab.rowconfigure(5, weight=1)
-        ttk.Label(self.case_details_tab, text="Carátula:").grid(row=0, column=0, sticky=tk.W, pady=2); self.caratula_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300); self.caratula_lbl.grid(row=0, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Expediente:").grid(row=1, column=0, sticky=tk.W, pady=2); self.expediente_lbl = ttk.Label(self.case_details_tab, text=""); self.expediente_lbl.grid(row=1, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Juzgado:").grid(row=2, column=0, sticky=tk.W, pady=2); self.juzgado_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300); self.juzgado_lbl.grid(row=2, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Jurisdicción:").grid(row=3, column=0, sticky=tk.W, pady=2); self.jurisdiccion_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300); self.jurisdiccion_lbl.grid(row=3, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Etapa Procesal:").grid(row=4, column=0, sticky=tk.W, pady=2); self.etapa_lbl = ttk.Label(self.case_details_tab, text="", wraplength=300); self.etapa_lbl.grid(row=4, column=1, sticky=tk.EW, pady=2)
-        ttk.Label(self.case_details_tab, text="Notas:").grid(row=5, column=0, sticky=tk.NW, pady=2); self.notas_text = tk.Text(self.case_details_tab, height=4, wrap=tk.WORD, state=tk.DISABLED); self.notas_text.grid(row=5, column=1, sticky=tk.NSEW, pady=2); notas_scrollbar = ttk.Scrollbar(self.case_details_tab, orient=tk.VERTICAL, command=self.notas_text.yview); notas_scrollbar.grid(row=5, column=2, sticky=tk.NS, pady=2); self.notas_text['yscrollcommand'] = notas_scrollbar.set
-        inactivity_frame = ttk.LabelFrame(self.case_details_tab, text="Alarma Inactividad", padding="5"); inactivity_frame.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=5); inactivity_frame.columnconfigure(1, weight=1)
-        ttk.Label(inactivity_frame, text="Habilitada:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=1); self.inactivity_enabled_lbl = ttk.Label(inactivity_frame, text=""); self.inactivity_enabled_lbl.grid(row=0, column=1, sticky=tk.W, pady=1)
-        ttk.Label(inactivity_frame, text="Umbral Días:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=1); self.inactivity_threshold_lbl = ttk.Label(inactivity_frame, text=""); self.inactivity_threshold_lbl.grid(row=1, column=1, sticky=tk.W, pady=1)
-
-        self.documents_tab = ttk.Frame(self.main_notebook, padding="10"); self.main_notebook.add(self.documents_tab, text='Documentación')
-        self.documents_tab.columnconfigure(0, weight=1); self.documents_tab.rowconfigure(3, weight=1)
-        ttk.Label(self.documents_tab, text="Carpeta Documentos:").grid(row=0, column=0, pady=(0, 5), sticky=tk.W)
-        folder_frame = ttk.Frame(self.documents_tab); folder_frame.grid(row=1, column=0, sticky=tk.EW, pady=(0, 5)); folder_frame.columnconfigure(0, weight=1)
-        self.folder_path_lbl = ttk.Label(folder_frame, text="Selecciona un caso", relief=tk.SUNKEN, anchor=tk.W, wraplength=250); self.folder_path_lbl.grid(row=0, column=0, sticky=tk.EW, padx=(0, 5))
-        self.select_folder_btn = ttk.Button(folder_frame, text="...", command=self.select_case_folder, state=tk.DISABLED, width=3); self.select_folder_btn.grid(row=0, column=1, sticky=tk.E, padx=(0,5))
-        self.open_folder_btn = ttk.Button(folder_frame, text="Abrir", command=self.open_case_folder, state=tk.DISABLED, width=5); self.open_folder_btn.grid(row=0, column=2, sticky=tk.E)
-        ttk.Label(self.documents_tab, text="Archivos:").grid(row=2, column=0, pady=(0, 5), sticky=tk.NW)
-        documents_tree_frame = ttk.Frame(self.documents_tab); documents_tree_frame.grid(row=3, column=0, sticky='nsew'); documents_tree_frame.columnconfigure(0, weight=1); documents_tree_frame.rowconfigure(0, weight=1)
-        self.document_tree = ttk.Treeview(documents_tree_frame, columns=('Nombre', 'Tamaño', 'Fecha Mod.'), show='headings'); self.document_tree.heading('Nombre', text='Nombre'); self.document_tree.heading('Tamaño', text='Tamaño'); self.document_tree.heading('Fecha Mod.', text='Modificado'); self.document_tree.column('Tamaño', width=80, stretch=tk.NO, anchor=tk.E); self.document_tree.column('Fecha Mod.', width=120, stretch=tk.NO)
-        document_scrollbar = ttk.Scrollbar(documents_tree_frame, orient=tk.VERTICAL, command=self.document_tree.yview); self.document_tree.configure(yscrollcommand=document_scrollbar.set); document_scrollbar.pack(side=tk.RIGHT, fill=tk.Y); self.document_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        self.partes_tab = ttk.Frame(self.main_notebook, padding="10"); self.main_notebook.add(self.partes_tab, text='Partes')
-        ttk.Label(self.partes_tab, text="Gestión de Partes Intervinientes (Próximamente).").pack()
-
-        # --- Pestaña de Seguimiento ---
-        self.seguimiento_tab_frame = SeguimientoTab(self.main_notebook, self) # 'self' es CRMLegalApp (app_controller)
-        self.main_notebook.add(self.seguimiento_tab_frame, text="Seguimiento")
-
         # --- Área de audiencias (lista y detalles) ---
-        # El layout original para audiencias se mantiene, pero ahora el notebook está encima.
-        audiencia_area_frame = ttk.Frame(col3_frame)
-        audiencia_area_frame.grid(row=1, column=0, sticky='nsew', pady=5) # Fila 1 de col3_frame
-        audiencia_area_frame.columnconfigure(0, weight=1) # Columna para lista+botones (0)
-        audiencia_area_frame.columnconfigure(1, weight=1) # Columna para detalles audiencia (1)
+        # Movida a col2_frame, fila 4
+        audiencia_area_frame = ttk.Frame(col2_frame) # PADRE CAMBIADO a col2_frame
+        audiencia_area_frame.grid(row=4, column=0, sticky='nsew', pady=5) # NUEVA POSICIÓN en col2_frame
+        audiencia_area_frame.columnconfigure(0, weight=1)
+        audiencia_area_frame.columnconfigure(1, weight=1)
         audiencia_area_frame.rowconfigure(0, weight=1)
 
         audiencias_list_with_actions_frame = ttk.Frame(audiencia_area_frame)
@@ -258,18 +455,25 @@ class CRMLegalApp:
         audiencia_details_frame = ttk.LabelFrame(audiencia_area_frame, text="Detalles Completos Audiencia", padding="5")
         audiencia_details_frame.grid(row=0, column=1, sticky='nsew', pady=(0,0))
         audiencia_details_frame.columnconfigure(0, weight=1); audiencia_details_frame.rowconfigure(0, weight=1)
-        self.audiencia_details_text = tk.Text(audiencia_details_frame, height=5, wrap=tk.WORD, state=tk.DISABLED, background=self.root.cget('bg'))
+        self.audiencia_details_text = tk.Text(audiencia_details_frame, height=5, wrap=tk.WORD, state=tk.DISABLED, background=self.root.cget('bg')) # Ajustar altura si es necesario
         audiencia_details_scroll = ttk.Scrollbar(audiencia_details_frame, orient=tk.VERTICAL, command=self.audiencia_details_text.yview); self.audiencia_details_text.configure(yscrollcommand=audiencia_details_scroll.set)
         audiencia_details_scroll.grid(row=0, column=1, sticky='ns'); self.audiencia_details_text.grid(row=0, column=0, sticky='nsew')
 
-        # --- Estado Inicial de Pestañas y Botones ---
-        self.main_notebook.tab(self.case_details_tab, state='disabled')
-        self.main_notebook.tab(self.documents_tab, state='disabled')
-        self.main_notebook.tab(self.partes_tab, state='disabled')
-        self.main_notebook.tab(self.seguimiento_tab_frame, state='disabled') # Pestaña de seguimiento deshabilitada
-        self.seguimiento_tab_frame.set_add_button_state(tk.DISABLED) # Botón en pestaña seguimiento deshabilitado
+        # --- Columna 3 ELIMINADA ---
+        # El contenido de self.main_notebook (detalles del caso, documentos, seguimiento)
+        # ahora está en CaseDetailWindow.
+        # Las referencias a self.caratula_lbl, self.notas_text, self.document_tree,
+        # self.main_notebook, self.case_details_tab, etc., que pertenecían al notebook
+        # en la columna 3, ya no son necesarias aquí como atributos directos de CRMLegalApp
+        # para la visualización de detalles. Se accederán a través de self.case_detail_window.
 
-        print("Widgets creados con la estructura de 3 columnas y pestaña de Seguimiento.")
+        # --- Estado Inicial de Pestañas y Botones ---
+        # La habilitación/deshabilitación de pestañas del notebook de detalles
+        # ahora es manejada por la clase CaseDetailWindow.
+        # Si SeguimientoTab tenía un botón que se deshabilitaba, eso también
+        # se manejará dentro de CaseDetailWindow o SeguimientoTab.
+
+        print("Widgets creados con la nueva estructura de 2 columnas.")
 
             # --- Métodos de Lógica CRM (Clientes y Casos) ---
     def load_clients(self):
@@ -378,53 +582,44 @@ class CRMLegalApp:
 
             if self.selected_case:
                 print(f"Caso seleccionado ID: {self.selected_case['id']}")
-                self.display_case_details(self.selected_case)
-                self.load_case_documents(self.selected_case.get('ruta_carpeta', ''))
-                self.enable_case_buttons()
-                self.enable_detail_tabs_for_case() # Habilita todas las pestañas de detalles
+                if self.case_detail_window is None:
+                    self.case_detail_window = CaseDetailWindow(self.root, self)
 
-                if hasattr(self, 'seguimiento_tab_frame'):
-                    self.seguimiento_tab_frame.load_actividades(self.selected_case['id'])
-                    self.seguimiento_tab_frame.set_add_button_state(tk.NORMAL)
+                self.case_detail_window.update_details(self.selected_case)
+                self.case_detail_window.show()
+
+                self.enable_case_buttons()
+                # La lógica de habilitar pestañas y cargar seguimiento ahora está en CaseDetailWindow.update_details
             else: # Error al cargar el caso o ID inválido
                 self.selected_case = None
-                self.clear_case_details() # Esto limpia y deshabilita todo lo relacionado al caso
+                self.clear_case_details() # Limpia botones y oculta/limpia la ventana de detalles
         else: # Deselección en el treeview de casos
             self.selected_case = None
-            self.clear_case_details() # Limpia y deshabilita
+            self.clear_case_details() # Limpia botones y oculta/limpia la ventana de detalles
         self.update_add_audiencia_button_state()
 
-
-    def display_case_details(self, case_data):
-        if case_data:
-            self.caratula_lbl.config(text=case_data.get('caratula', 'N/A'))
-            exp = f"{case_data.get('numero_expediente', 'S/N')}/{case_data.get('anio_caratula', 'S/A')}"
-            self.expediente_lbl.config(text=exp)
-            self.juzgado_lbl.config(text=case_data.get('juzgado', 'N/A'))
-            self.jurisdiccion_lbl.config(text=case_data.get('jurisdiccion', 'N/A'))
-            self.etapa_lbl.config(text=case_data.get('etapa_procesal', 'N/A'))
-            self.notas_text.config(state=tk.NORMAL); self.notas_text.delete('1.0', tk.END); self.notas_text.insert('1.0', case_data.get('notas', '')); self.notas_text.config(state=tk.DISABLED)
-            inactivity_enabled = "Sí" if case_data.get('inactivity_enabled') else "No"
-            inactivity_threshold = case_data.get('inactivity_threshold_days', 30)
-            self.inactivity_enabled_lbl.config(text=inactivity_enabled); self.inactivity_threshold_lbl.config(text=str(inactivity_threshold))
-            folder_path = case_data.get('ruta_carpeta', ''); self.folder_path_lbl.config(text=folder_path if folder_path else "Carpeta no asignada")
-            self.select_folder_btn.config(state=tk.NORMAL); self.open_folder_btn.config(state=tk.NORMAL if folder_path and os.path.exists(folder_path) else tk.DISABLED)
-        # No hay 'else: self.clear_case_details()' aquí, porque display_case_details
-        # solo se llama si case_data es válido. La limpieza se hace en on_case_select o clear_case_list.
+    # display_case_details ya no es necesaria para actualizar la UI principal,
+    # ya que CaseDetailWindow.update_details() se encarga de ello.
+    # def display_case_details(self, case_data):
+    #     if case_data:
+    #         # Estas líneas se movieron a CaseDetailWindow.update_details
+    #         # self.caratula_lbl.config(text=case_data.get('caratula', 'N/A'))
+    #         # ... y todas las demás ...
+    #         pass # Lógica ahora en CaseDetailWindow
 
 
     def clear_case_details(self):
-        self.caratula_lbl.config(text=""); self.expediente_lbl.config(text=""); self.juzgado_lbl.config(text="")
-        self.jurisdiccion_lbl.config(text=""); self.etapa_lbl.config(text="")
-        self.notas_text.config(state=tk.NORMAL); self.notas_text.delete('1.0', tk.END); self.notas_text.config(state=tk.DISABLED)
-        self.inactivity_enabled_lbl.config(text=""); self.inactivity_threshold_lbl.config(text="")
-        self.folder_path_lbl.config(text="Selecciona un caso para ver/asignar carpeta");
-        self.select_folder_btn.config(state=tk.DISABLED); self.open_folder_btn.config(state=tk.DISABLED)
+        # Las referencias a los widgets del notebook principal (self.caratula_lbl, etc.)
+        # han sido eliminadas de CRMLegalApp ya que ahora están en CaseDetailWindow.
+        # La limpieza de esos widgets se maneja en CaseDetailWindow.clear_all_details().
         
-        self.clear_document_list()
+        if self.case_detail_window:
+            self.case_detail_window.clear_all_details()
+            self.case_detail_window.withdraw()
+
         self.disable_case_buttons()
-        self.disable_detail_tabs_for_case() # Esto deshabilita todas las pestañas, incluida Seguimiento.
-                                            # Y dentro de disable_detail_tabs_for_case, se limpia SeguimientoTab.
+        # La lógica de deshabilitar pestañas también está en CaseDetailWindow.clear_all_details()
+        # o CaseDetailWindow.disable_all_tabs().
 
 
     def enable_case_buttons(self):
@@ -433,23 +628,17 @@ class CRMLegalApp:
     def disable_case_buttons(self):
         self.edit_case_btn.config(state=tk.DISABLED); self.delete_case_btn.config(state=tk.DISABLED)
 
-    def enable_detail_tabs_for_case(self):
-        self.main_notebook.tab(self.case_details_tab, state='normal')
-        self.main_notebook.tab(self.documents_tab, state='normal')
-        self.main_notebook.tab(self.partes_tab, state='normal')
-        if hasattr(self, 'seguimiento_tab_frame'):
-            self.main_notebook.tab(self.seguimiento_tab_frame, state='normal')
-        if self.selected_case:
-             self.main_notebook.select(self.case_details_tab)
+    # enable_detail_tabs_for_case y disable_detail_tabs_for_case ya no son necesarias aquí
+    # def enable_detail_tabs_for_case(self):
+    #     # Lógica movida a CaseDetailWindow.enable_all_tabs
+    #     pass
 
-    def disable_detail_tabs_for_case(self):
-        self.main_notebook.tab(self.case_details_tab, state='disabled')
-        self.main_notebook.tab(self.documents_tab, state='disabled')
-        self.main_notebook.tab(self.partes_tab, state='disabled')
-        if hasattr(self, 'seguimiento_tab_frame'):
-            self.main_notebook.tab(self.seguimiento_tab_frame, state='disabled')
-            self.seguimiento_tab_frame.load_actividades(None) # Limpia y deshabilita botón
-            # self.seguimiento_tab_frame.set_add_button_state(tk.DISABLED) # ya lo hace load_actividades(None)
+    # def disable_detail_tabs_for_case(self):
+    #     # Lógica movida a CaseDetailWindow.disable_all_tabs
+    #     # if hasattr(self, 'seguimiento_tab_frame'): # Esta referencia ya no es la misma
+    #     #     # self.main_notebook.tab(self.seguimiento_tab_frame, state='disabled') # El notebook está en Toplevel
+    #     #     self.seguimiento_tab_frame.load_actividades(None)
+    #     pass
 
     def open_client_dialog(self, client_id=None):
         is_edit = client_id is not None; dialog = tk.Toplevel(self.root)
@@ -552,32 +741,67 @@ class CRMLegalApp:
                 self.actualizar_lista_audiencias(); self.marcar_dias_audiencias_calendario()
             else: messagebox.showerror("Error", "No se pudo eliminar el caso.", parent=self.root)
 
-    def select_case_folder(self):
-        if not self.selected_case: messagebox.showwarning("Advertencia", "Selecciona un caso.", parent=self.root); return
+    def select_case_folder(self, detail_window_instance=None): # Parámetro añadido
+        if not self.selected_case:
+            messagebox.showwarning("Advertencia", "Selecciona un caso.", parent=self.root)
+            return
+
+        target_window = detail_window_instance if detail_window_instance else self.case_detail_window
+        if not target_window:
+            messagebox.showerror("Error", "Ventana de detalles no disponible.", parent=self.root)
+            return
+
         initial_dir = self.selected_case.get('ruta_carpeta') or os.path.expanduser("~")
-        folder_selected = filedialog.askdirectory(initialdir=initial_dir, title="Seleccionar Carpeta Docs", parent=self.root)
+        folder_selected = filedialog.askdirectory(initialdir=initial_dir, title="Seleccionar Carpeta Docs", parent=self.root) # parent puede ser self.root o target_window
+
         if folder_selected:
             case_id = self.selected_case['id']
             if db.update_case_folder(case_id, folder_selected):
-                self.selected_case['ruta_carpeta'] = folder_selected
-                self.folder_path_lbl.config(text=folder_selected); self.open_folder_btn.config(state=tk.NORMAL)
-                self.load_case_documents(folder_selected)
-                messagebox.showinfo("Éxito", "Carpeta asignada.", parent=self.root)
-            else: messagebox.showerror("Error", "No se pudo guardar la ruta.", parent=self.root)
+                self.selected_case['ruta_carpeta'] = folder_selected # Actualizar el dato en memoria
 
-    def open_case_folder(self):
-        if not self.selected_case or not self.selected_case.get('ruta_carpeta'): messagebox.showwarning("Advertencia", "Selecciona caso con carpeta.", parent=self.root); return
+                # Actualizar la UI en la ventana de detalles
+                target_window.update_document_list(folder_selected) # Llama al método de la ventana de detalles
+
+                messagebox.showinfo("Éxito", "Carpeta asignada.", parent=self.root)
+            else:
+                messagebox.showerror("Error", "No se pudo guardar la ruta.", parent=self.root)
+
+    def open_case_folder(self, detail_window_instance=None): # Parámetro añadido
+        if not self.selected_case or not self.selected_case.get('ruta_carpeta'):
+            messagebox.showwarning("Advertencia", "Selecciona un caso con una carpeta asignada.", parent=self.root)
+            return
+
+        target_window = detail_window_instance if detail_window_instance else self.case_detail_window
+        # No es estrictamente necesario 'target_window' aquí si solo abre el explorador, pero mantenemos la consistencia.
+
         folder_path = self.selected_case['ruta_carpeta']
         if folder_path and os.path.isdir(folder_path):
             try:
                 if sys.platform == "win32": os.startfile(folder_path)
                 elif sys.platform == "darwin": subprocess.call(["open", folder_path])
                 else: subprocess.call(["xdg-open", folder_path])
-            except Exception as e: messagebox.showerror("Error", f"No se pudo abrir:\n{e}", parent=self.root)
-        else: messagebox.showwarning("Advertencia", "Carpeta no existe o inválida.", parent=self.root); self.open_folder_btn.config(state=tk.DISABLED)
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo abrir la carpeta:\n{e}", parent=self.root)
+        else:
+            messagebox.showwarning("Advertencia", "La ruta de la carpeta no existe o es inválida.", parent=self.root)
+            if target_window: # Si la ventana de detalles existe, actualizar su botón
+                target_window.open_folder_btn.config(state=tk.DISABLED)
 
-    def load_case_documents(self, folder_path):
-        self.clear_document_list()
+    def load_case_documents(self, folder_path, target_tree=None): # target_tree añadido
+        # Si target_tree no se especifica, y la ventana de detalles existe, usar su tree.
+        # Esto es para mantener la compatibilidad si se llama desde otro lugar sin target_tree,
+        # aunque la llamada principal ahora vendrá de CaseDetailWindow.update_details.
+        active_document_tree = target_tree
+        if not active_document_tree and self.case_detail_window:
+            active_document_tree = self.case_detail_window.document_tree
+
+        if not active_document_tree: # Si sigue sin haber árbol (ej. ventana no creada), no hacer nada
+            print("Advertencia: load_case_documents llamado sin un target_tree y sin CaseDetailWindow visible.")
+            return
+
+        # Limpiar el árbol de documentos objetivo
+        for i in active_document_tree.get_children(): active_document_tree.delete(i)
+
         if folder_path and os.path.isdir(folder_path):
             try:
                 for entry in os.scandir(folder_path):
@@ -589,15 +813,21 @@ class CRMLegalApp:
                             elif size_bytes < 1024**3: size_display = f"{size_bytes/1024**2:.1f} MB"
                             else: size_display = f"{size_bytes/1024**3:.1f} GB"
                             mod_time = datetime.datetime.fromtimestamp(stat_info.st_mtime).strftime('%Y-%m-%d %H:%M')
-                            self.document_tree.insert('', tk.END, values=(entry.name, size_display, mod_time), iid=entry.path)
+                            active_document_tree.insert('', tk.END, values=(entry.name, size_display, mod_time), iid=entry.path)
                         except OSError as e: print(f"Warn: No se pudo leer info de {entry.path}: {e}")
                         except Exception as e: print(f"Error procesando archivo {entry.path}: {e}")
-            except OSError as e: print(f"Error listando dir {folder_path}: {e}"); self.document_tree.insert('', tk.END, values=(f"Error al leer: {e}", "", ""), iid="error_dir")
-            except Exception as e: print(f"Error inesperado listando {folder_path}: {e}"); self.document_tree.insert('', tk.END, values=("Error inesperado", "", ""), iid="error_inesperado")
-        elif self.selected_case: self.document_tree.insert('', tk.END, values=("Carpeta no asignada o no encontrada.", "", ""), iid="no_folder")
+            except OSError as e: print(f"Error listando dir {folder_path}: {e}"); active_document_tree.insert('', tk.END, values=(f"Error al leer: {e}", "", ""), iid="error_dir")
+            except Exception as e: print(f"Error inesperado listando {folder_path}: {e}"); active_document_tree.insert('', tk.END, values=("Error inesperado", "", ""), iid="error_inesperado")
+        elif self.selected_case: # Solo mostrar este mensaje si hay un caso seleccionado
+            active_document_tree.insert('', tk.END, values=("Carpeta no asignada o no encontrada.", "", ""), iid="no_folder")
 
-    def clear_document_list(self):
-        for i in self.document_tree.get_children(): self.document_tree.delete(i)
+
+    # Ya no es necesario, CaseDetailWindow maneja su propia limpieza de documentos
+    # def clear_document_list(self):
+    #     # if self.case_detail_window and self.case_detail_window.document_tree:
+    #     #    for i in self.case_detail_window.document_tree.get_children(): self.case_detail_window.document_tree.delete(i)
+    #     pass
+
 
     # --- Métodos para SeguimientoTab ---
     def open_actividad_dialog_for_seguimiento_tab(self, caso_id):
